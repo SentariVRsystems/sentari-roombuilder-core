@@ -57,7 +57,18 @@ export function parsePose(m: unknown, now: number): DevicePose | null {
 // The `loadRoom` payload: what RoomBuilderLoader.cs instantiates on the Quest.
 // `cell` is meters-per-cell, so the headset can convert the cell coordinates to
 // world space without hard-coding the grid scale. `rot` is degrees.
-export type LoadRoomObject = { kind: string; x: number; y: number; rot: number; w: number; h: number };
+// `behavior` is present only for targets/NPCs — the disposition the headset
+// applies as the NPC's alignment (Hostile/Compliant/Afraid/CompToHostile, or
+// Random to pick at spawn). Omitted for walls/doors/furniture.
+export type LoadRoomObject = {
+  kind: string;
+  x: number;
+  y: number;
+  rot: number;
+  w: number;
+  h: number;
+  behavior?: string;
+};
 export type LoadRoomPayload = {
   room: {
     id: string;
@@ -79,7 +90,10 @@ export function buildLoadRoomPayload(room: Room): LoadRoomPayload {
       cell: CELL_METERS,
       width: room.width,
       height: room.height,
-      objects: room.objects.map((o) => ({ kind: o.kind, x: o.x, y: o.y, rot: o.rotation, w: o.w, h: o.h })),
+      objects: room.objects.map((o) => ({
+        kind: o.kind, x: o.x, y: o.y, rot: o.rotation, w: o.w, h: o.h,
+        ...(o.behavior ? { behavior: o.behavior } : {}),
+      })),
     },
   };
 }

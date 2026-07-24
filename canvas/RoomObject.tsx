@@ -1,13 +1,15 @@
 import React from "react";
 import { Circle, G, Path, Rect } from "react-native-svg";
-import { CELL, paletteById, toSvgX, toSvgY, type PlacedObject } from "../rooms";
+import { behaviorColor, CELL, paletteById, toSvgX, toSvgY, type PlacedObject } from "../rooms";
 import { colors } from "../theme";
 
 // One placed object, drawn in SVG coordinates. Walls and furniture are rects in
-// their catalog color; the start marker is a teal spawn glyph. Returns a <G>.
+// their catalog color; targets are colored by their assigned behavior (so the
+// map reads dispositions at a glance); the start marker is a teal spawn glyph.
 export function RoomObject({ o, selected }: { o: PlacedObject; selected: boolean }) {
   const def = paletteById[o.kind];
-  const fill = def?.fill ?? colors.steel;
+  // Targets take their color from behavior, not the palette swatch.
+  const fill = def?.render === "npc" ? behaviorColor(o.behavior) : def?.fill ?? colors.steel;
   const stroke = def?.stroke ?? "rgba(247,249,251,0.28)";
   const cx = toSvgX(o.x);
   const cy = toSvgY(o.y);

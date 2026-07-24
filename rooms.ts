@@ -64,7 +64,32 @@ export type PaletteDef = {
 };
 
 // Top-level build-menu sections, in tab order.
-export const PALETTE_SECTIONS = ["Walls", "Doors", "Furniture", "NPCs", "Start"];
+export const PALETTE_SECTIONS = ["Walls", "Doors", "Furniture", "Targets", "Start"];
+
+// ── Target behavior (disposition) ───────────────────────────────
+// A placed target carries a BEHAVIOR, matching Build & Breach's own
+// NPCBehaviorToggle (Scripts/NPCBehaviorToggle.cs) + NPCAlignment enum. It's
+// what the instructor assigns per target; the headset applies it as the NPC's
+// alignment, and it drives the marker color on the map. Colors are the game's
+// exact toggle colors so the plan reads the same as the drill.
+export type Behavior = "hostile" | "compliant" | "afraid" | "compToHostile" | "random";
+
+export const BEHAVIORS: { id: Behavior; label: string; color: string }[] = [
+  { id: "hostile", label: "Hostile", color: "#FF3333" }, // engages on sight
+  { id: "compliant", label: "Compliant", color: "#33CC33" }, // surrenders / follows commands
+  { id: "afraid", label: "Afraid", color: "#FFCC33" }, // panics, flees ("scared")
+  { id: "compToHostile", label: "Comp→Hostile", color: "#FF801A" }, // fake-surrender, turns when you look away
+  { id: "random", label: "Random", color: "#9933FF" }, // picked at spawn (game default)
+];
+
+export const behaviorById: Record<Behavior, (typeof BEHAVIORS)[number]> = BEHAVIORS.reduce(
+  (acc, b) => ((acc[b.id] = b), acc),
+  {} as Record<Behavior, (typeof BEHAVIORS)[number]>
+);
+
+export const DEFAULT_BEHAVIOR: Behavior = "random";
+export const isBehavior = (v: unknown): v is Behavior => typeof v === "string" && v in behaviorById;
+export const behaviorColor = (b: Behavior | undefined) => behaviorById[b ?? DEFAULT_BEHAVIOR].color;
 
 const F_STROKE = "rgba(247,249,251,0.28)";
 const LIGHT_STROKE = "rgba(247,249,251,0.4)";
@@ -85,13 +110,15 @@ const DOORS: { id: string; fill: string }[] = [
   { id: "Black Door", fill: "#33383E" },
 ];
 
-// NPCs from Resources/BuildingMaterials/NPCs/NPCs — the real placeable prefabs.
-// Colored by kind so the map reads at a glance: hostile=red, non-hostile=blue,
-// soldiers=olive, named civilians=coral.
+// Targets/NPCs from Resources/BuildingMaterials/NPCs/NPCs — the real placeable
+// prefabs. `kind` stays the prefab displayName (the headset resolves it); the
+// two generic dummies are surfaced as "Targets". A placed target's MAP color
+// comes from its assigned behavior, not this fill — `fill` is only the palette
+// swatch. `label` overrides the menu text where it differs from the prefab id.
 const NPC_CIVILIAN = "#D98C5F";
-const NPCS: { id: string; fill: string }[] = [
-  { id: "Hostile", fill: "#C15A4E" },
-  { id: "Non-Hostile", fill: "#5B8FB9" },
+const NPCS: { id: string; label?: string; fill: string }[] = [
+  { id: "Hostile", label: "Hostile Target", fill: "#C15A4E" },
+  { id: "Non-Hostile", label: "Non-Hostile Target", fill: "#5B8FB9" },
   { id: "Soldier", fill: "#6E7A55" },
   { id: "Soldier (Gas)", fill: "#6E7A55" },
   { id: "Bobby", fill: NPC_CIVILIAN },
@@ -141,7 +168,7 @@ export const PALETTE: PaletteDef[] = [
     }))
   ),
   ...NPCS.map<PaletteDef>((n) => ({
-    kind: n.id, label: n.id, section: "NPCs", category: "NPCs", place: "point", render: "npc",
+    kind: n.id, label: n.label ?? n.id, section: "Targets", category: "Targets", place: "point", render: "npc",
     defaultW: 1, defaultH: 1, fill: n.fill, stroke: LIGHT_STROKE,
   })),
   { kind: "start", label: "Start", section: "Start", category: "Start", place: "start", render: "start", defaultW: 1, defaultH: 1, fill: "#3DB4FF", stroke: "#3DB4FF", singleton: true },
@@ -161,6 +188,7 @@ export type PlacedObject = {
   rotation: number; // degrees, any angle (0 = as authored)
   w: number; // footprint in cells
   h: number;
+  behavior?: Behavior; // targets/NPCs only — disposition applied on the headset
 };
 
 export type Room = {
@@ -186,7 +214,10 @@ export function sanitizeRoom(id: string, data: unknown): Room | null {
       typeof o.x === "number" && typeof o.y === "number" &&
       typeof o.rotation === "number" && typeof o.w === "number" && typeof o.h === "number"
     ) {
-      objects.push({ id: o.id, kind: o.kind, x: o.x, y: o.y, rotation: o.rotation, w: o.w, h: o.h });
+      objects.push({
+        id: o.id, kind: o.kind, x: o.x, y: o.y, rotation: o.rotation, w: o.w, h: o.h,
+        ...(isBehavior(o.behavior) ? { behavior: o.behavior } : {}),
+      });
     }
   }
   return {
@@ -211,8 +242,16 @@ export const newRoomId = () => uid("room");
 export function makeObject(kind: string, x: number, y: number, width = ROOM_W, height = ROOM_H): PlacedObject {
   const def = paletteById[kind];
   const p = clampToRoom(snap(x), snap(y), width, height);
-  return { id: newObjectId(), kind, x: p.x, y: p.y, rotation: 0, w: def?.defaultW ?? 1, h: def?.defaultH ?? 1 };
+  return {
+    id: newObjectId(), kind, x: p.x, y: p.y, rotation: 0, w: def?.defaultW ?? 1, h: def?.defaultH ?? 1,
+    // Targets start on the game's default disposition (Random); other objects
+    // carry no behavior.
+    ...(def?.render === "npc" ? { behavior: DEFAULT_BEHAVIOR } : {}),
+  };
 }
+
+// Is this kind a placeable target/NPC (behavior applies)?
+export const isNpcKind = (kind: string) => paletteById[kind]?.render === "npc";
 
 // Build a wall of the given material spanning two points: centered on their
 // midpoint, length = distance between them, rotated to the line's angle. Points
@@ -353,9 +392,12 @@ export function snapDoorToWall(
 // devices or clobber an edited copy in Firestore.
 export function seedRooms(): Room[] {
   const now = 0;
-  const obj = (kind: string, x: number, y: number, rotation = 0, w?: number, h?: number): PlacedObject => {
+  const obj = (kind: string, x: number, y: number, rotation = 0, w?: number, h?: number, behavior?: Behavior): PlacedObject => {
     const def = paletteById[kind];
-    return { id: newObjectId(), kind, x, y, rotation, w: w ?? def?.defaultW ?? 1, h: h ?? def?.defaultH ?? 1 };
+    return {
+      id: newObjectId(), kind, x, y, rotation, w: w ?? def?.defaultW ?? 1, h: h ?? def?.defaultH ?? 1,
+      ...(def?.render === "npc" ? { behavior: behavior ?? DEFAULT_BEHAVIOR } : {}),
+    };
   };
   const shooterHouse: PlacedObject[] = [
     obj("Concrete", 12, 1, 0, 20, 0.5),
@@ -367,8 +409,8 @@ export function seedRooms(): Room[] {
     obj("Table01", 6, 5),
     obj("Sofa01", 17, 10),
     obj("Chair01", 18, 5),
-    obj("Hostile", 5, 4),
-    obj("Bobby", 6, 11),
+    obj("Hostile", 5, 4, 0, undefined, undefined, "hostile"),
+    obj("Bobby", 6, 11, 0, undefined, undefined, "compliant"),
     obj("start", 12, 14),
   ];
   const openBay: PlacedObject[] = [
