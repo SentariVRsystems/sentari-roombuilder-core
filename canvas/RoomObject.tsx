@@ -22,10 +22,20 @@ export function RoomObject({ o, selected }: { o: PlacedObject; selected: boolean
   const npcR = Math.min(w, h) / 2;
   const shape =
     def?.render === "start" ? (
-      // Teal marker with an up-chevron — the trainee's spawn/stand point.
+      // The trainee START ZONE — a blue floor rectangle (3 ft × 5 ft) the headset
+      // shows on the ground; the "house is hot" countdown begins once every
+      // player stands inside it. An up-chevron marks the facing direction (into
+      // the room); the group's rotate() turns the whole zone with the object.
       <>
-        <Circle cx={cx} cy={cy} r={w / 2} fill={fill} opacity={0.22} stroke={stroke} strokeWidth={1.5} />
-        <Path d={`M ${cx} ${cy - w / 3} L ${cx + w / 4} ${cy + w / 5} L ${cx} ${cy + w / 12} L ${cx - w / 4} ${cy + w / 5} Z`} fill={stroke} />
+        <Rect x={x} y={y} width={w} height={h} rx={CELL * 0.12} fill={fill} opacity={0.2} stroke={stroke} strokeWidth={2} />
+        <Path
+          d={`M ${cx - CELL * 0.32} ${cy + CELL * 0.12} L ${cx} ${cy - CELL * 0.3} L ${cx + CELL * 0.32} ${cy + CELL * 0.12}`}
+          stroke={stroke}
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
       </>
     ) : def?.render === "npc" ? (
       // A person marker — filled disc with a head dot, plus a facing arrow:

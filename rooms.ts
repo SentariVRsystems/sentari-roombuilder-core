@@ -27,6 +27,13 @@ export const metersToCells = (m: number) => Math.round(m / CELL_METERS);
 export const clampRoomCells = (c: number) =>
   Math.max(MIN_ROOM_CELLS, Math.min(MAX_ROOM_CELLS, Math.round(c)));
 
+// The trainee START ZONE is spec'd in FEET (3 ft × 5 ft — a breach stack: 3 ft
+// wide, 5 ft deep). The headset shows it as a blue rectangle on the ground and
+// begins the "house is hot" countdown once every player is standing inside it.
+export const FOOT_METERS = 0.3048; // meters per foot
+export const feetToCells = (ft: number) => (ft * FOOT_METERS) / CELL_METERS;
+export const START_ZONE_FT = { w: 3, h: 5 }; // width × depth, in feet
+
 export const toSvgX = (x: number) => x * CELL;
 export const toSvgY = (y: number) => y * CELL;
 
@@ -171,7 +178,7 @@ export const PALETTE: PaletteDef[] = [
     kind: n.id, label: n.label ?? n.id, section: "Targets", category: "Targets", place: "point", render: "npc",
     defaultW: 1, defaultH: 1, fill: n.fill, stroke: LIGHT_STROKE,
   })),
-  { kind: "start", label: "Start", section: "Start", category: "Start", place: "start", render: "start", defaultW: 1, defaultH: 1, fill: "#3DB4FF", stroke: "#3DB4FF", singleton: true },
+  { kind: "start", label: "Start Zone", section: "Start", category: "Start", place: "start", render: "start", defaultW: feetToCells(START_ZONE_FT.w), defaultH: feetToCells(START_ZONE_FT.h), fill: "#3DB4FF", stroke: "#3DB4FF", singleton: true },
 ];
 
 export const paletteById: Record<string, PaletteDef> = PALETTE.reduce(
