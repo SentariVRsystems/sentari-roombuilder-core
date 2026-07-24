@@ -5,27 +5,46 @@ import { Card } from "../ui/Card";
 import { Body, Kicker, Mono, Muted } from "../ui/Text";
 import type { TrackedHeadset } from "../tracking";
 
-// The Instructor-Led roster: headsets that opted into the instructor-run mode
-// (wire status "building"). `live` means a room is pushed and they're being
-// tracked in it; `replaying` means a finished run is being reviewed.
-export function BuildHeadsetsPanel({ headsets, live, replaying }: { headsets: TrackedHeadset[]; live: boolean; replaying?: boolean }) {
+// The roster of headsets that opted into the builder-run mode (wire status
+// "building"). `live` means a room is pushed and they're being tracked in it;
+// `replaying` means a finished run is being reviewed.
+//
+// The MODE NAME is a prop because the two apps call it different things for
+// different audiences: Sentari Command says "Instructor-Led" (someone else is
+// running your session), Build & Breach Builder says "Builder Mode" (you are).
+// It's the same wire value either way — one headset build serves both.
+export function BuildHeadsetsPanel({
+  headsets,
+  live,
+  replaying,
+  modeName = "Instructor-Led",
+  subject = "Trainees",
+}: {
+  headsets: TrackedHeadset[];
+  live: boolean;
+  replaying?: boolean;
+  /** What this app calls the mode, e.g. "Instructor-Led" or "Builder Mode". */
+  modeName?: string;
+  /** Who's wearing the headsets, e.g. "Trainees" or "You". */
+  subject?: string;
+}) {
   const status = live ? "● TRACKING" : replaying ? "● REPLAY" : "idle";
   const note = live
-    ? "Trainees are standing in the pushed room."
+    ? `${subject} are standing in the pushed room.`
     : replaying
     ? "Reviewing the recorded run."
     : "Push a room to place these headsets in it.";
   return (
     <Card className="min-w-[240px]">
       <View className="flex-row items-center justify-between mb-1">
-        <Kicker>INSTRUCTOR-LED</Kicker>
+        <Kicker>{modeName.toUpperCase()}</Kicker>
         <Mono className={live || replaying ? "text-brand-teal text-[10px]" : "text-brand-snow/40 text-[10px]"}>
           {status}
         </Mono>
       </View>
       <Muted className="text-[12px] mb-3">{note}</Muted>
       {headsets.length === 0 ? (
-        <Muted className="py-4 text-center">No headsets in Instructor-Led.</Muted>
+        <Muted className="py-4 text-center">No headsets in {modeName}.</Muted>
       ) : (
         headsets.map((h) => (
           <View key={h.id} className="flex-row items-center justify-between py-2 border-t border-hairline">
