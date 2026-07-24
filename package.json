@@ -1,0 +1,14 @@
+{
+  "name": "@sentari/roombuilder-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared room model, relay protocol, brand system, and top-down canvas for Sentari Command and Build & Breach Builder.",
+  "main": "index.ts",
+  "license": "UNLICENSED",
+  "peerDependencies": {
+    "@expo/vector-icons": "*",
+    "react": ">=19",
+    "react-native": ">=0.85",
+    "react-native-svg": ">=15"
+  }
+}
