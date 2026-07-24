@@ -27,12 +27,14 @@ export const metersToCells = (m: number) => Math.round(m / CELL_METERS);
 export const clampRoomCells = (c: number) =>
   Math.max(MIN_ROOM_CELLS, Math.min(MAX_ROOM_CELLS, Math.round(c)));
 
-// The trainee START ZONE is spec'd in FEET (3 ft × 5 ft — a breach stack: 3 ft
-// wide, 5 ft deep). The headset shows it as a blue rectangle on the ground and
-// begins the "house is hot" countdown once every player is standing inside it.
+// The trainee START ZONE is spec'd in FEET — a 5 ft × 3 ft floor rectangle
+// (5 ft wide along the line the squad forms on, 3 ft deep). The facing chevron
+// points across the short axis toward the long front edge = the direction they
+// advance. The headset shows it as a blue rectangle on the ground and begins
+// the "house is hot" countdown once every player is standing inside it.
 export const FOOT_METERS = 0.3048; // meters per foot
 export const feetToCells = (ft: number) => (ft * FOOT_METERS) / CELL_METERS;
-export const START_ZONE_FT = { w: 3, h: 5 }; // width × depth, in feet
+export const START_ZONE_FT = { w: 5, h: 3 }; // width × depth, in feet
 
 export const toSvgX = (x: number) => x * CELL;
 export const toSvgY = (y: number) => y * CELL;
