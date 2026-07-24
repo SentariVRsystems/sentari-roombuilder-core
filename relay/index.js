@@ -278,6 +278,15 @@ wss.on("connection", (ws) => {
         for (const c of controllers()) send(c.ws, out);
         break;
       }
+      case "runEnded": {
+        // The trainee ended the run on the headset. Mirror of the "end" command
+        // going the other way, so whichever side stops a run, both agree it's over.
+        if (client.role !== "device" || !client.deviceName) break;
+        console.log(`⏹ ${client.deviceName} ended its run`);
+        for (const c of controllers())
+          send(c.ws, { type: "runEnded", deviceName: client.deviceName, t: Date.now() });
+        break;
+      }
       case "quizResult": {
         // From a headset after a lab quiz: { type, lesson, score, correct, total }
         if (client.role === "device" && client.deviceName && msg.lesson) {
