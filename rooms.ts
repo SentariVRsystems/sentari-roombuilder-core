@@ -393,6 +393,77 @@ export function snapDoorToWall(
   return nearest;
 }
 
+// ── Door openings (cut a gap in the wall for each door) ──────────
+// A door drawn ON a continuous wall means the door's swinging leaf hits the wall
+// body on the headset. Fix it geometrically: wherever a door lies along a wall,
+// split that wall into segments leaving a DOOR-WIDTH gap — a real opening the
+// leaf swings through. Returns the object list with walls replaced by their
+// gapped segments (doors and everything else unchanged). Used when building the
+// headset payload (and can drive the map so the opening is visible).
+export function wallsWithDoorGaps(objects: PlacedObject[]): PlacedObject[] {
+  const doors = objects.filter((o) => isDoorKind(o.kind));
+  if (!doors.length) return objects;
+
+  const MIN_SEG = 0.2; // cells — drop slivers left after cutting
+  const MAX_ANGLE = 25; // door must be ~parallel to the wall to cut it
+  const out: PlacedObject[] = [];
+
+  for (const o of objects) {
+    if (!isWallKind(o.kind)) {
+      out.push(o);
+      continue;
+    }
+    const [a, b] = wallEndpoints(o);
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1e-6;
+    const ux = (b.x - a.x) / len;
+    const uy = (b.y - a.y) / len;
+    const halfThick = Math.max(o.h, 0.5) / 2 + 0.4; // wall half-thickness + tolerance (cells)
+
+    // Collect [start,end] gaps (in distance along the wall) for doors on it.
+    const gaps: Array<[number, number]> = [];
+    for (const d of doors) {
+      if (lineAngleDiff(d.rotation, o.rotation) > MAX_ANGLE) continue;
+      const px = d.x - a.x;
+      const py = d.y - a.y;
+      const t = px * ux + py * uy; // projection onto the wall line
+      const perp = Math.abs(px * -uy + py * ux); // perpendicular distance to the line
+      if (perp > halfThick) continue; // door isn't sitting on this wall
+      if (t < -d.w / 2 || t > len + d.w / 2) continue; // door is past the wall's span
+      gaps.push([t - d.w / 2, t + d.w / 2]);
+    }
+    if (!gaps.length) {
+      out.push(o);
+      continue;
+    }
+
+    // Merge overlapping gaps, clamp to the wall, then emit the solid segments
+    // between them as new wall pieces (same kind/thickness/rotation).
+    gaps.sort((g1, g2) => g1[0] - g2[0]);
+    const merged: Array<[number, number]> = [];
+    for (const g of gaps) {
+      const last = merged[merged.length - 1];
+      if (last && g[0] <= last[1]) last[1] = Math.max(last[1], g[1]);
+      else merged.push([Math.max(0, g[0]), Math.min(len, g[1])]);
+    }
+    let cursor = 0;
+    let seg = 0;
+    const emit = (t0: number, t1: number) => {
+      if (t1 - t0 < MIN_SEG) return;
+      const sx = a.x + ux * t0;
+      const sy = a.y + uy * t0;
+      const ex = a.x + ux * t1;
+      const ey = a.y + uy * t1;
+      out.push({ ...o, id: `${o.id}~${seg++}`, x: (sx + ex) / 2, y: (sy + ey) / 2, w: t1 - t0 });
+    };
+    for (const [gs, ge] of merged) {
+      emit(cursor, gs);
+      cursor = Math.max(cursor, ge);
+    }
+    emit(cursor, len);
+  }
+  return out;
+}
+
 // ── Seed rooms ──────────────────────────────────────────────────
 // A couple of prebuilt rooms so the library isn't empty on first load. Fixed
 // ids + zero timestamps make them merge-friendly: every fresh install seeds

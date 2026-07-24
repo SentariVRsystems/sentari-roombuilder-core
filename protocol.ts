@@ -8,7 +8,7 @@
 //
 // Full protocol: SentariCommand/server/protocol.md.
 
-import { CELL_METERS, type Room } from "./rooms";
+import { CELL_METERS, wallsWithDoorGaps, type Room } from "./rooms";
 
 // ── Device → controller ─────────────────────────────────────────
 
@@ -90,7 +90,9 @@ export function buildLoadRoomPayload(room: Room): LoadRoomPayload {
       cell: CELL_METERS,
       width: room.width,
       height: room.height,
-      objects: room.objects.map((o) => ({
+      // Cut a door-width opening in every wall a door sits on, so the door's
+      // leaf swings through the gap instead of into the wall body.
+      objects: wallsWithDoorGaps(room.objects).map((o) => ({
         kind: o.kind, x: o.x, y: o.y, rot: o.rotation, w: o.w, h: o.h,
         ...(o.behavior ? { behavior: o.behavior } : {}),
       })),
