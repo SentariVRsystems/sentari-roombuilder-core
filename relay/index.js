@@ -264,6 +264,20 @@ wss.on("connection", (ws) => {
         for (const c of controllers()) send(c.ws, out);
         break;
       }
+      case "npcPoses": {
+        // Batched NPC positions from a headset running a pushed room: each NPC's
+        // position (room grid cells) + facing, keyed by the layout object id.
+        // Fanned to controllers only, same as trainee poses.
+        if (client.role !== "device" || !Array.isArray(msg.npcs)) break;
+        const npcs = [];
+        for (const n of msg.npcs) {
+          if (!n || typeof n.id !== "string") continue;
+          npcs.push({ id: n.id, x: Number(n.x) || 0, y: Number(n.y) || 0, facing: Number(n.facing) || 0 });
+        }
+        const out = { type: "npcPoses", deviceName: client.deviceName, npcs, t: Date.now() };
+        for (const c of controllers()) send(c.ws, out);
+        break;
+      }
       case "quizResult": {
         // From a headset after a lab quiz: { type, lesson, score, correct, total }
         if (client.role === "device" && client.deviceName && msg.lesson) {

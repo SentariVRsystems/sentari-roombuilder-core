@@ -39,14 +39,38 @@ export type TrackedHeadset = {
   space?: Space;
 };
 
+// One NPC's recorded motion: position (cells) + facing over time.
+export type NpcFrame = { x: number; y: number; facing: number; t: number };
+export type NpcTrack = { id: string; path: NpcFrame[] };
+
+// A live/sampled NPC position, keyed by the layout object id. Screens override
+// the static NPC marker with this so targets move on the map.
+export type NpcPositions = Record<string, { x: number; y: number; facing: number }>;
+
 // A recorded run, normalized so timestamps start at 0.
 export type Replay = {
   roomId: string;
   tracks: { id: string; deviceName: string; path: Frame[] }[];
+  npcTracks?: NpcTrack[]; // recorded NPC motion (empty on older runs)
   duration: number; // ms
   t: number; // playhead, ms
   playing: boolean;
 };
+
+// Every recorded NPC's position at playhead `t` (ms), keyed by object id — feeds
+// the same npc-override the live view uses, so replay shows targets moving too.
+export function sampleNpcsAt(replay: Replay, t: number): NpcPositions {
+  const out: NpcPositions = {};
+  for (const tr of replay.npcTracks ?? []) {
+    const path = tr.path;
+    if (!path.length) continue;
+    let i = 0;
+    while (i + 1 < path.length && path[i + 1].t <= t) i++;
+    const f = path[i];
+    out[tr.id] = { x: f.x, y: f.y, facing: f.facing };
+  }
+  return out;
+}
 
 // How long a movement trail stays visible, in ms.
 export const TRAIL_MS = 10_000;

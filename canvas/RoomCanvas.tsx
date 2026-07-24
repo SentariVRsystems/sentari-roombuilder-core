@@ -2,11 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { GestureResponderEvent, LayoutChangeEvent, PanResponder, Pressable, Text, View } from "react-native";
 import type { View as RNView } from "react-native";
 import Svg, { Circle, G, Line, Rect } from "react-native-svg";
-import { CELL, CELL_METERS, toSvgX, toSvgY, type PlacedObject, type Room } from "../rooms";
+import { CELL, CELL_METERS, isNpcKind, toSvgX, toSvgY, type PlacedObject, type Room } from "../rooms";
 import { colors } from "../theme";
 import { RoomObject } from "./RoomObject";
 import { LiveTrackingLayer } from "./LiveTrackingLayer";
-import type { TrackMark } from "../tracking";
+import type { NpcPositions, TrackMark } from "../tracking";
 
 type DragState = { id: string; mode: "move" | "rotate"; dcx: number; dcy: number; rot: number; moved: boolean };
 
@@ -14,6 +14,7 @@ type Props = {
   room: Room;
   selectedObjectId: string | null;
   live: TrackMark[] | null; // headset marks to overlay (live or replay)
+  npcOverride?: NpcPositions; // move targets to their live/replay positions (by object id)
   mode?: "edit" | "wall"; // wall = click two points to place a wall
   wallStart?: { x: number; y: number } | null; // first wall point, awaiting the second
   onSelect: (id: string | null) => void;
@@ -27,7 +28,7 @@ type Props = {
 // on absolutely-positioned View overlays (PanResponder on SVG nodes is flaky on
 // web). Object overlays handle tap-to-select, drag-to-move, and Shift+drag to
 // rotate freely. In wall mode, clicks on the ground place a two-point wall.
-export function RoomCanvas({ room, selectedObjectId, live, mode = "edit", wallStart, onSelect, onMove, onRotate, onCanvasPoint, readOnly }: Props) {
+export function RoomCanvas({ room, selectedObjectId, live, npcOverride, mode = "edit", wallStart, onSelect, onMove, onRotate, onCanvasPoint, readOnly }: Props) {
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null); // mirror, for commit outside setState
@@ -89,6 +90,10 @@ export function RoomCanvas({ room, selectedObjectId, live, mode = "edit", wallSt
 
   // Object with its live drag/rotate override applied.
   const displayObject = (o: PlacedObject): PlacedObject => {
+    // A live/replay NPC position overrides the authored one — the marker moves to
+    // where the target actually is, facing its heading. Not draggable meanwhile.
+    const ov = npcOverride && isNpcKind(o.kind) ? npcOverride[o.id] : undefined;
+    if (ov) return { ...o, x: ov.x, y: ov.y, rotation: ov.facing };
     if (drag?.id !== o.id) return o;
     if (drag.mode === "move") return { ...o, x: o.x + drag.dcx, y: o.y + drag.dcy };
     return { ...o, rotation: drag.rot };

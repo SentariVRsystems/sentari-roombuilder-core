@@ -73,6 +73,38 @@ function enterRoom(h, room) {
     targetX: 2 + Math.random() * (room.width - 4),
     targetY: 2 + Math.random() * (room.height - 4),
   };
+  // Simulate each NPC wandering near where it was authored, so the controller's
+  // live NPC tracking + replay have something to draw. Keyed by object id.
+  const NPC_KINDS = new Set(["Hostile", "Non-Hostile", "Soldier", "Soldier (Gas)", "Bobby", "Freddy", "Ray", "Remy", "Susan", "Tabby", "Tom"]);
+  h.npcs = (room.objects || [])
+    .filter((o) => o.id && NPC_KINDS.has(o.kind))
+    .map((o) => ({ id: o.id, x: o.x, y: o.y, facing: o.rot || 0, homeX: o.x, homeY: o.y, tx: o.x, ty: o.y }));
+}
+
+// Move each NPC a little around its home each tick and report the batch.
+function stepNpcs(h) {
+  if (!h.npcs || !h.npcs.length || !h.room) return;
+  const room = h.room;
+  for (const n of h.npcs) {
+    const dx = n.tx - n.x;
+    const dy = n.ty - n.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 0.3) {
+      n.tx = Math.max(0.5, Math.min(room.width - 0.5, n.homeX + (Math.random() - 0.5) * 3));
+      n.ty = Math.max(0.5, Math.min(room.height - 0.5, n.homeY + (Math.random() - 0.5) * 3));
+    } else {
+      const step = Math.min(0.08, dist);
+      n.x += (dx / dist) * step;
+      n.y += (dy / dist) * step;
+      n.facing = (Math.atan2(dy, dx) * 180) / Math.PI;
+    }
+  }
+  h.ws?.send(
+    JSON.stringify({
+      type: "npcPoses",
+      npcs: h.npcs.map((n) => ({ id: n.id, x: Math.round(n.x * 100) / 100, y: Math.round(n.y * 100) / 100, facing: Math.round(n.facing * 10) / 10 })),
+    })
+  );
 }
 
 // One pose step: bounded random walk toward a target, face the direction of
@@ -232,7 +264,10 @@ if (BUILD > 0) {
   console.log(`Build mode: ${Math.min(BUILD, COUNT)} headset(s) reporting status:"building"`);
   setInterval(() => {
     for (const h of headsets) {
-      if (h.room && h.pose && h.ws?.readyState === WebSocket.OPEN) stepPose(h);
+      if (h.room && h.pose && h.ws?.readyState === WebSocket.OPEN) {
+        stepPose(h);
+        stepNpcs(h);
+      }
     }
   }, POSE_MS);
 }

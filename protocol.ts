@@ -52,6 +52,27 @@ export function parsePose(m: unknown, now: number): DevicePose | null {
   };
 }
 
+// An NPC's live position in the pushed room's GRID CELLS + facing heading. `id`
+// matches the placed object's id from the loadRoom payload, so a controller can
+// correlate a moving NPC back to the target it authored. The headset streams
+// these as one batched `npcPoses` message (all NPCs at once) while a room is
+// live; the relay fans it to controllers only.
+export type NpcPose = { id: string; x: number; y: number; facing: number };
+
+// Parse an incoming `npcPoses` batch. Returns [] for anything malformed so a bad
+// frame can't break the tracking loop.
+export function parseNpcPoses(m: unknown): NpcPose[] {
+  const b = m as { type?: string; npcs?: unknown };
+  if (!b || b.type !== "npcPoses" || !Array.isArray(b.npcs)) return [];
+  const out: NpcPose[] = [];
+  for (const raw of b.npcs) {
+    const n = raw as Partial<NpcPose>;
+    if (!n || typeof n.id !== "string") continue;
+    out.push({ id: n.id, x: Number(n.x) || 0, y: Number(n.y) || 0, facing: Number(n.facing) || 0 });
+  }
+  return out;
+}
+
 // ── Controller → device ─────────────────────────────────────────
 
 // The `loadRoom` payload: what RoomBuilderLoader.cs instantiates on the Quest.
@@ -61,6 +82,7 @@ export function parsePose(m: unknown, now: number): DevicePose | null {
 // applies as the NPC's alignment (Hostile/Compliant/Afraid/CompToHostile, or
 // Random to pick at spawn). Omitted for walls/doors/furniture.
 export type LoadRoomObject = {
+  id: string; // the placed object's id — lets the headset key NPC pose reports back to it
   kind: string;
   x: number;
   y: number;
@@ -93,7 +115,7 @@ export function buildLoadRoomPayload(room: Room): LoadRoomPayload {
       // Cut a door-width opening in every wall a door sits on, so the door's
       // leaf swings through the gap instead of into the wall body.
       objects: wallsWithDoorGaps(room.objects).map((o) => ({
-        kind: o.kind, x: o.x, y: o.y, rot: o.rotation, w: o.w, h: o.h,
+        id: o.id, kind: o.kind, x: o.x, y: o.y, rot: o.rotation, w: o.w, h: o.h,
         ...(o.behavior ? { behavior: o.behavior } : {}),
       })),
     },
