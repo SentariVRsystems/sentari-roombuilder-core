@@ -63,67 +63,32 @@ export function RoomObject({
         />
       </>
     ) : isDoorKind(o.kind) ? (
-      // A DOOR, drawn like a floor plan: the slab in the opening, a hinge dot at
-      // the pivot end, and the arc the leaf sweeps through. The instructor needs
-      // to see which way it opens when placing targets behind it — a bare
-      // rectangle said "there is a door here" but nothing about the swing.
+      // A DOOR: just the leaf, where it actually is. No swept arc, no preview of
+      // where it COULD go — a map full of speculative arcs is noise; what the
+      // instructor needs is the current state. Closed (or before a run, when the
+      // headset isn't reporting) the leaf lies in the opening; during a run it
+      // tracks the real hinge angle.
       //
-      // Convention matches the prefab: hinged at the +x end of the door's own
-      // frame, swinging clockwise on this y-down map (DoorPhysicsSetup limits
-      // 0..DOOR_SWING_DEG about +Y, and a CW map angle is a CW-from-above yaw).
-      // The group's rotate() turns the whole symbol with the object.
+      // Hinged at the +x end of the door's own frame, opening clockwise on this
+      // y-down map — matching the prefab's hinge. The group's rotate() carries
+      // the whole symbol with the object.
       <>
         {(() => {
-          const hx = cx + w / 2; // hinge end
-          const R = w;           // leaf length = door width
-          // The swing geometry is drawn in the ACCENT, not the door's own colour.
-          // Black Door is #33383E against a #0C1219 canvas — an arc at 10-75%
-          // opacity in that colour is invisible, which read as "the arc isn't
-          // working". The slab keeps the palette colour so doors stay
-          // distinguishable; only the swing hint is forced legible.
-          const swing = colors.teal;
-          const a = (DOOR_SWING_DEG * Math.PI) / 180;
-          // Free end at rest (pointing -x from the hinge) swung CW by the limit.
-          const ex = hx - R * Math.cos(a);
-          const ey = cy + R * Math.sin(a);
+          const hx = cx + w / 2;                    // hinge end
+          const R = w;                              // leaf length = door width
+          const a = ((openAngle ?? 0) * Math.PI) / 180;
+          const lx = hx - R * Math.cos(a);
+          const ly = cy + R * Math.sin(a);
+          const open = Math.abs(openAngle ?? 0) > 3;
           return (
             <>
-              {/* swept area + arc */}
               <Path
-                d={`M ${hx} ${cy} L ${hx - R} ${cy} A ${R} ${R} 0 0 1 ${ex} ${ey} Z`}
-                fill={swing}
-                opacity={0.12}
+                d={`M ${hx} ${cy} L ${lx} ${ly}`}
+                stroke={open ? colors.teal : fill}
+                strokeWidth={open ? 3.5 : Math.max(h, 3)}
+                opacity={open ? 1 : 0.95}
+                strokeLinecap="round"
               />
-              <Path
-                d={`M ${hx - R} ${cy} A ${R} ${R} 0 0 1 ${ex} ${ey}`}
-                fill="none"
-                stroke={swing}
-                strokeWidth={1.3}
-                strokeDasharray="3 2"
-                opacity={0.8}
-              />
-              {/* the leaf at its LIVE angle when the headset is reporting one,
-                  otherwise parked at the full-open extent as a static hint */}
-              {(() => {
-                const live = typeof openAngle === "number";
-                const la = ((live ? openAngle! : DOOR_SWING_DEG) * Math.PI) / 180;
-                const lx = hx - R * Math.cos(la);
-                const ly = cy + R * Math.sin(la);
-                return (
-                  <Path
-                    d={`M ${hx} ${cy} L ${lx} ${ly}`}
-                    stroke={swing}
-                    strokeWidth={live ? 3.5 : 1.8}
-                    opacity={live ? 1 : 0.55}
-                    strokeLinecap="round"
-                  />
-                );
-              })()}
-              {/* the opening itself — only drawn shut when no live angle says otherwise */}
-              {(typeof openAngle !== "number" || Math.abs(openAngle) < 3) && (
-                <Rect x={x} y={y} width={w} height={h} rx={2} fill={fill} stroke={stroke} strokeWidth={1} />
-              )}
-              {/* hinge */}
               <Circle cx={hx} cy={cy} r={2.6} fill={colors.snow} opacity={0.9} />
             </>
           );
