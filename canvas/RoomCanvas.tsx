@@ -7,6 +7,7 @@ import { colors } from "../theme";
 import { RoomObject } from "./RoomObject";
 import { LiveTrackingLayer } from "./LiveTrackingLayer";
 import type { NpcPositions, TrackMark } from "../tracking";
+import type { DoorAngles } from "../protocol";
 
 type DragState = { id: string; mode: "move" | "rotate"; dcx: number; dcy: number; rot: number; moved: boolean };
 
@@ -15,6 +16,7 @@ type Props = {
   selectedObjectId: string | null;
   live: TrackMark[] | null; // headset marks to overlay (live or replay)
   npcOverride?: NpcPositions; // move targets to their live/replay positions (by object id)
+  doorAngles?: DoorAngles; // live swing angle per door id — draws the leaf where it is
   mode?: "edit" | "wall"; // wall = click two points to place a wall
   wallStart?: { x: number; y: number } | null; // first wall point, awaiting the second
   onSelect: (id: string | null) => void;
@@ -28,7 +30,7 @@ type Props = {
 // on absolutely-positioned View overlays (PanResponder on SVG nodes is flaky on
 // web). Object overlays handle tap-to-select, drag-to-move, and Shift+drag to
 // rotate freely. In wall mode, clicks on the ground place a two-point wall.
-export function RoomCanvas({ room, selectedObjectId, live, npcOverride, mode = "edit", wallStart, onSelect, onMove, onRotate, onCanvasPoint, readOnly }: Props) {
+export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngles, mode = "edit", wallStart, onSelect, onMove, onRotate, onCanvasPoint, readOnly }: Props) {
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null); // mirror, for commit outside setState
@@ -163,7 +165,15 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, mode = "
           // A target the trainee killed is drawn struck-through, so the instructor
           // can tell "cleared" from "still standing there" at a glance.
           const ov = npcOverride && isNpcKind(o.kind) ? npcOverride[o.id] : undefined;
-          return <RoomObject key={o.id} o={d} selected={o.id === selectedObjectId} dead={ov?.alive === false} />;
+          return (
+            <RoomObject
+              key={o.id}
+              o={d}
+              selected={o.id === selectedObjectId}
+              dead={ov?.alive === false}
+              openAngle={doorAngles?.[o.id]}
+            />
+          );
         })}
         {wallStart && (
           <Circle cx={toSvgX(wallStart.x)} cy={toSvgY(wallStart.y)} r={5} fill={colors.teal} stroke={colors.canvas} strokeWidth={1.5} />

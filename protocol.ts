@@ -62,6 +62,23 @@ export type NpcPose = { id: string; x: number; y: number; facing: number; alive:
 
 // Parse an incoming `npcPoses` batch. Returns [] for anything malformed so a bad
 // frame can't break the tracking loop.
+// A door's live swing angle in the pushed room. `id` matches the placed object,
+// `angle` is degrees from closed — the map draws the leaf there instead of shut.
+export type DoorState = { id: string; angle: number };
+export type DoorAngles = Record<string, number>;
+
+export function parseDoorStates(m: unknown): DoorState[] {
+  const b = m as { type?: string; doors?: unknown };
+  if (!b || b.type !== "doorStates" || !Array.isArray(b.doors)) return [];
+  const out: DoorState[] = [];
+  for (const raw of b.doors) {
+    const d = raw as Partial<DoorState>;
+    if (!d || typeof d.id !== "string") continue;
+    out.push({ id: d.id, angle: Number(d.angle) || 0 });
+  }
+  return out;
+}
+
 export function parseNpcPoses(m: unknown): NpcPose[] {
   const b = m as { type?: string; npcs?: unknown };
   if (!b || b.type !== "npcPoses" || !Array.isArray(b.npcs)) return [];

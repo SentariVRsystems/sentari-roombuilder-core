@@ -6,7 +6,17 @@ import { colors } from "../theme";
 // One placed object, drawn in SVG coordinates. Walls and furniture are rects in
 // their catalog color; targets are colored by their assigned behavior (so the
 // map reads dispositions at a glance); the start marker is a teal spawn glyph.
-export function RoomObject({ o, selected, dead = false }: { o: PlacedObject; selected: boolean; dead?: boolean }) {
+export function RoomObject({
+  o,
+  selected,
+  dead = false,
+  openAngle,
+}: {
+  o: PlacedObject;
+  selected: boolean;
+  dead?: boolean;
+  openAngle?: number; // live swing angle from the headset, degrees from closed
+}) {
   const def = paletteById[o.kind];
   // Targets take their color from behavior, not the palette swatch.
   const fill = def?.render === "npc" ? behaviorColor(o.behavior) : def?.fill ?? colors.steel;
@@ -86,10 +96,27 @@ export function RoomObject({ o, selected, dead = false }: { o: PlacedObject; sel
                 strokeDasharray="3 2"
                 opacity={0.75}
               />
-              {/* the leaf, fully open */}
-              <Path d={`M ${hx} ${cy} L ${ex} ${ey}`} stroke={fill} strokeWidth={1.6} opacity={0.5} strokeLinecap="round" />
-              {/* the closed slab, filling the opening */}
-              <Rect x={x} y={y} width={w} height={h} rx={2} fill={fill} stroke={stroke} strokeWidth={1} />
+              {/* the leaf at its LIVE angle when the headset is reporting one,
+                  otherwise parked at the full-open extent as a static hint */}
+              {(() => {
+                const live = typeof openAngle === "number";
+                const la = ((live ? openAngle! : DOOR_SWING_DEG) * Math.PI) / 180;
+                const lx = hx - R * Math.cos(la);
+                const ly = cy + R * Math.sin(la);
+                return (
+                  <Path
+                    d={`M ${hx} ${cy} L ${lx} ${ly}`}
+                    stroke={fill}
+                    strokeWidth={live ? 3 : 1.6}
+                    opacity={live ? 0.95 : 0.5}
+                    strokeLinecap="round"
+                  />
+                );
+              })()}
+              {/* the opening itself — only drawn shut when no live angle says otherwise */}
+              {(typeof openAngle !== "number" || Math.abs(openAngle) < 3) && (
+                <Rect x={x} y={y} width={w} height={h} rx={2} fill={fill} stroke={stroke} strokeWidth={1} />
+              )}
               {/* hinge */}
               <Circle cx={hx} cy={cy} r={2.6} fill={colors.snow} opacity={0.9} />
             </>

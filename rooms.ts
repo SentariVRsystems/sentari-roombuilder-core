@@ -278,10 +278,11 @@ export function makeWall(kind: string, x1: number, y1: number, x2: number, y2: n
 export const isWallKind = (kind: string) => paletteById[kind]?.section === "Walls";
 export const isDoorKind = (kind: string) => paletteById[kind]?.section === "Doors";
 
-// How far a door leaf swings, in degrees. Mirrors DoorPhysicsSetup.maxAngle on
-// the headset — keep the two in sync so the arc the instructor plans against is
-// the arc the door actually sweeps.
-export const DOOR_SWING_DEG = 150;
+// How far a door leaf swings, in degrees — what the map's swing arc draws. This
+// is the door PREFAB's own hinge limit (min -154 / max 160), which is what the
+// headset actually enforces; RoomBuilderLoader additionally clamps to ±180 so a
+// leaf can never wrap past flat. Keep in sync if the prefab's joint changes.
+export const DOOR_SWING_DEG = 160;
 
 // The two endpoints of a wall segment (center ± half-length along its rotation).
 export function wallEndpoints(o: PlacedObject): [{ x: number; y: number }, { x: number; y: number }] {
