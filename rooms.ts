@@ -278,6 +278,11 @@ export function makeWall(kind: string, x1: number, y1: number, x2: number, y2: n
 export const isWallKind = (kind: string) => paletteById[kind]?.section === "Walls";
 export const isDoorKind = (kind: string) => paletteById[kind]?.section === "Doors";
 
+// How far a door leaf swings, in degrees. Mirrors DoorPhysicsSetup.maxAngle on
+// the headset — keep the two in sync so the arc the instructor plans against is
+// the arc the door actually sweeps.
+export const DOOR_SWING_DEG = 150;
+
 // The two endpoints of a wall segment (center ± half-length along its rotation).
 export function wallEndpoints(o: PlacedObject): [{ x: number; y: number }, { x: number; y: number }] {
   const r = (o.rotation * Math.PI) / 180;

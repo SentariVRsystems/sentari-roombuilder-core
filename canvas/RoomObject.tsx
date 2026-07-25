@@ -1,6 +1,6 @@
 import React from "react";
 import { Circle, G, Line, Path, Rect } from "react-native-svg";
-import { behaviorColor, CELL, paletteById, toSvgX, toSvgY, type PlacedObject } from "../rooms";
+import { behaviorColor, CELL, DOOR_SWING_DEG, isDoorKind, paletteById, toSvgX, toSvgY, type PlacedObject } from "../rooms";
 import { colors } from "../theme";
 
 // One placed object, drawn in SVG coordinates. Walls and furniture are rects in
@@ -51,6 +51,50 @@ export function RoomObject({ o, selected, dead = false }: { o: PlacedObject; sel
           strokeLinecap="round"
           fill="none"
         />
+      </>
+    ) : isDoorKind(o.kind) ? (
+      // A DOOR, drawn like a floor plan: the slab in the opening, a hinge dot at
+      // the pivot end, and the arc the leaf sweeps through. The instructor needs
+      // to see which way it opens when placing targets behind it — a bare
+      // rectangle said "there is a door here" but nothing about the swing.
+      //
+      // Convention matches the prefab: hinged at the +x end of the door's own
+      // frame, swinging clockwise on this y-down map (DoorPhysicsSetup limits
+      // 0..DOOR_SWING_DEG about +Y, and a CW map angle is a CW-from-above yaw).
+      // The group's rotate() turns the whole symbol with the object.
+      <>
+        {(() => {
+          const hx = cx + w / 2; // hinge end
+          const R = w;           // leaf length = door width
+          const a = (DOOR_SWING_DEG * Math.PI) / 180;
+          // Free end at rest (pointing -x from the hinge) swung CW by the limit.
+          const ex = hx - R * Math.cos(a);
+          const ey = cy + R * Math.sin(a);
+          return (
+            <>
+              {/* swept area + arc */}
+              <Path
+                d={`M ${hx} ${cy} L ${hx - R} ${cy} A ${R} ${R} 0 0 1 ${ex} ${ey} Z`}
+                fill={fill}
+                opacity={0.1}
+              />
+              <Path
+                d={`M ${hx - R} ${cy} A ${R} ${R} 0 0 1 ${ex} ${ey}`}
+                fill="none"
+                stroke={fill}
+                strokeWidth={1.2}
+                strokeDasharray="3 2"
+                opacity={0.75}
+              />
+              {/* the leaf, fully open */}
+              <Path d={`M ${hx} ${cy} L ${ex} ${ey}`} stroke={fill} strokeWidth={1.6} opacity={0.5} strokeLinecap="round" />
+              {/* the closed slab, filling the opening */}
+              <Rect x={x} y={y} width={w} height={h} rx={2} fill={fill} stroke={stroke} strokeWidth={1} />
+              {/* hinge */}
+              <Circle cx={hx} cy={cy} r={2.6} fill={colors.snow} opacity={0.9} />
+            </>
+          );
+        })()}
       </>
     ) : (
       <Rect x={x} y={y} width={w} height={h} rx={2} fill={fill} stroke={stroke} strokeWidth={1} />
