@@ -16,7 +16,12 @@ export type Space = { w: number; h: number };
 export type TrailPoint = { x: number; y: number; t: number };
 
 // A recorded motion frame: position, view heading, and gun heading.
-export type Frame = { x: number; y: number; facing: number; gun: number; t: number };
+export type Frame = { x: number; y: number; facing: number; gun: number; firing?: boolean; t: number };
+
+// How long the gun line reads as "firing" after a shot, in replay. Matches the
+// live hold: a recorded firing frame covers only one pose interval (~143 ms), so
+// sampling the single frame under the playhead made shots flicker past unseen.
+export const FIRING_FLASH_MS = 500;
 
 // The minimal shape the tracking layer draws. Both a live headset and a replay
 // sample satisfy it, so the canvas never knows which it's rendering.
@@ -119,6 +124,12 @@ export function sampleReplayAt(replay: Replay, t: number, windowMs = Infinity): 
     const cutoff = t - windowMs;
     const trail: TrailPoint[] = [];
     for (let j = i; j >= 0 && path[j].t >= cutoff; j--) trail.unshift({ x: path[j].x, y: path[j].y, t: path[j].t });
-    return { id: track.id, deviceName: track.deviceName, x: f.x, y: f.y, facing: f.facing, gunAngle: f.gun, trail };
+    // Fired at any point in the last half-second of playback? Look back rather
+    // than testing only `f`, so a shot flashes for the same duration it does live.
+    let firing = false;
+    for (let j = i; j >= 0 && f.t - path[j].t <= FIRING_FLASH_MS; j--) {
+      if (path[j].firing) { firing = true; break; }
+    }
+    return { id: track.id, deviceName: track.deviceName, x: f.x, y: f.y, facing: f.facing, gunAngle: f.gun, firing, trail };
   });
 }
