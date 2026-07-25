@@ -77,8 +77,12 @@ export function RoomObject({
           const hx = cx + w / 2;                    // hinge end
           const R = w;                              // leaf length = door width
           const a = ((openAngle ?? 0) * Math.PI) / 180;
+          // The leaf lies along -x from the hinge when shut. Opening rotates it
+          // CLOCKWISE on this y-down canvas, which is -sin: the headset reports a
+          // Unity yaw delta (positive = clockwise seen from above) and the map view
+          // preserves that handedness, so +sin swung it the wrong way round.
           const lx = hx - R * Math.cos(a);
-          const ly = cy + R * Math.sin(a);
+          const ly = cy - R * Math.sin(a);
           const open = Math.abs(openAngle ?? 0) > 3;
           return (
             <>
