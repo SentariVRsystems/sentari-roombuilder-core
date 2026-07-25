@@ -28,6 +28,9 @@ export type RelayDevice = {
   paused?: boolean;
   elapsedSec?: number;
   lastSeen: number;
+  // Where a headset is in the Instructor-Led flow, so the instructor isn't pushing
+  // blind: calibrating | loadout | armed | running | debrief ("" outside the flow).
+  phase?: string;
   space?: { w: number; h: number }; // Guardian play-area size in meters
 };
 

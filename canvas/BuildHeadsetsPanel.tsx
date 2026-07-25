@@ -13,6 +13,25 @@ import type { TrackedHeadset } from "../tracking";
 // different audiences: Sentari Command says "Instructor-Led" (someone else is
 // running your session), Build & Breach Builder says "Builder Mode" (you are).
 // It's the same wire value either way — one headset build serves both.
+// A push is accepted at any point — the headset holds the countdown until the
+// trainee picks a weapon — so these read as information, not permission.
+const PHASE_LABELS: Record<string, string> = {
+  calibrating: "SETTING UP",
+  loadout: "AT LOADOUT",
+  armed: "ARMED",
+  running: "RUNNING",
+  debrief: "DEBRIEF",
+};
+
+function phaseLabel(phase?: string): string | null {
+  return phase ? PHASE_LABELS[phase] ?? null : null;
+}
+
+/// Ready = a push starts the run now or the moment they pick a weapon.
+function phaseReady(phase?: string): boolean {
+  return phase === "loadout" || phase === "armed";
+}
+
 export function BuildHeadsetsPanel({
   headsets,
   live,
@@ -54,6 +73,14 @@ export function BuildHeadsetsPanel({
               {h.space && (
                 <Mono className="text-brand-snow/35 text-[10px]">
                   {h.space.w.toFixed(1)}×{h.space.h.toFixed(1)}m
+                </Mono>
+              )}
+              {/* Where they are in the Instructor-Led flow. Without this the
+                  instructor is pushing blind — "in Builder Mode" can't tell a
+                  trainee still walking their corners from one armed and waiting. */}
+              {phaseLabel(h.phase) && (
+                <Mono className={`text-[10px] ${phaseReady(h.phase) ? "text-brand-teal" : "text-brand-snow/40"}`}>
+                  {phaseLabel(h.phase)}
                 </Mono>
               )}
             </View>

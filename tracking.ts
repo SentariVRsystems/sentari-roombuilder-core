@@ -43,6 +43,7 @@ export type TrackedHeadset = {
   deviceName: string;
   battery: number;
   space?: Space;
+  phase?: string; // Instructor-Led step, so the roster can show readiness
 };
 
 // One NPC's recorded motion: position (cells) + facing over time.
