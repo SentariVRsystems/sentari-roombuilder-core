@@ -66,11 +66,20 @@ function HeadsetMark({ h }: { h: TrackMark }) {
       {/* field of view */}
       <Path d={cone} fill={colors.teal} opacity={0.14} />
       <Path d={cone} fill="none" stroke={colors.teal} strokeWidth={1} opacity={0.35} />
-      {/* gun direction */}
-      <Line x1={cx} y1={cy} x2={gx} y2={gy} stroke={colors.sky} strokeWidth={2.5} strokeLinecap="round" />
+      {/* gun direction — RED while rounds are going out, so the instructor can
+          see who is actually shooting and in which direction at a glance. */}
+      <Line
+        x1={cx}
+        y1={cy}
+        x2={gx}
+        y2={gy}
+        stroke={h.firing ? colors.danger : colors.sky}
+        strokeWidth={h.firing ? 3.5 : 2.5}
+        strokeLinecap="round"
+      />
       <Path
         d={`M ${gx} ${gy} L ${gx - Math.cos(gr - 0.5) * 6} ${gy - Math.sin(gr - 0.5) * 6} L ${gx - Math.cos(gr + 0.5) * 6} ${gy - Math.sin(gr + 0.5) * 6} Z`}
-        fill={colors.sky}
+        fill={h.firing ? colors.danger : colors.sky}
       />
       {/* position dot */}
       <Circle cx={cx} cy={cy} r={r} fill={colors.teal} opacity={0.3} />

@@ -1,12 +1,12 @@
 import React from "react";
-import { Circle, G, Path, Rect } from "react-native-svg";
+import { Circle, G, Line, Path, Rect } from "react-native-svg";
 import { behaviorColor, CELL, paletteById, toSvgX, toSvgY, type PlacedObject } from "../rooms";
 import { colors } from "../theme";
 
 // One placed object, drawn in SVG coordinates. Walls and furniture are rects in
 // their catalog color; targets are colored by their assigned behavior (so the
 // map reads dispositions at a glance); the start marker is a teal spawn glyph.
-export function RoomObject({ o, selected }: { o: PlacedObject; selected: boolean }) {
+export function RoomObject({ o, selected, dead = false }: { o: PlacedObject; selected: boolean; dead?: boolean }) {
   const def = paletteById[o.kind];
   // Targets take their color from behavior, not the palette swatch.
   const fill = def?.render === "npc" ? behaviorColor(o.behavior) : def?.fill ?? colors.steel;
@@ -56,9 +56,19 @@ export function RoomObject({ o, selected }: { o: PlacedObject; selected: boolean
       <Rect x={x} y={y} width={w} height={h} rx={2} fill={fill} stroke={stroke} strokeWidth={1} />
     );
 
+  // A KILLED target: faded, with a red X over it. The marker stays at the spot it
+  // fell (the headset keeps reporting its last pose), so the map distinguishes
+  // "cleared" from "still up" instead of a target simply vanishing.
+  const kx = npcR * 0.62;
   return (
     <G transform={`rotate(${o.rotation} ${cx} ${cy})`}>
-      {shape}
+      <G opacity={dead ? 0.32 : 1}>{shape}</G>
+      {dead && (
+        <G transform={`rotate(${-o.rotation} ${cx} ${cy})`} opacity={0.95}>
+          <Line x1={cx - kx} y1={cy - kx} x2={cx + kx} y2={cy + kx} stroke={colors.danger} strokeWidth={2.2} strokeLinecap="round" />
+          <Line x1={cx - kx} y1={cy + kx} x2={cx + kx} y2={cy - kx} stroke={colors.danger} strokeWidth={2.2} strokeLinecap="round" />
+        </G>
+      )}
       {sel && <Rect x={x - 3} y={y - 3} width={w + 6} height={h + 6} rx={3} fill="none" {...sel} strokeDasharray="4 3" />}
     </G>
   );

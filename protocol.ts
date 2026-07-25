@@ -35,7 +35,7 @@ export type RelayDevice = {
 // headings in degrees (0° = +x/east, increasing clockwise in the top-down view).
 // The relay stamps `t` and fans these to controllers only — poses are never part
 // of the roster broadcast.
-export type DevicePose = { deviceName: string; x: number; y: number; facing: number; gun: number; t: number };
+export type DevicePose = { deviceName: string; x: number; y: number; facing: number; gun: number; firing: boolean; t: number };
 
 // Parse an incoming `pose` frame defensively — a malformed field must not blow
 // up the tracking loop. Returns null when the message isn't a usable pose.
@@ -48,6 +48,7 @@ export function parsePose(m: unknown, now: number): DevicePose | null {
     y: Number(p.y) || 0,
     facing: Number(p.facing) || 0,
     gun: Number(p.gun) || 0,
+    firing: !!p.firing,
     t: Number(p.t) || now,
   };
 }
@@ -57,7 +58,7 @@ export function parsePose(m: unknown, now: number): DevicePose | null {
 // correlate a moving NPC back to the target it authored. The headset streams
 // these as one batched `npcPoses` message (all NPCs at once) while a room is
 // live; the relay fans it to controllers only.
-export type NpcPose = { id: string; x: number; y: number; facing: number };
+export type NpcPose = { id: string; x: number; y: number; facing: number; alive: boolean };
 
 // Parse an incoming `npcPoses` batch. Returns [] for anything malformed so a bad
 // frame can't break the tracking loop.
@@ -68,7 +69,8 @@ export function parseNpcPoses(m: unknown): NpcPose[] {
   for (const raw of b.npcs) {
     const n = raw as Partial<NpcPose>;
     if (!n || typeof n.id !== "string") continue;
-    out.push({ id: n.id, x: Number(n.x) || 0, y: Number(n.y) || 0, facing: Number(n.facing) || 0 });
+    // alive defaults TRUE so a headset build that predates kill reporting still draws.
+    out.push({ id: n.id, x: Number(n.x) || 0, y: Number(n.y) || 0, facing: Number(n.facing) || 0, alive: n.alive !== false });
   }
   return out;
 }

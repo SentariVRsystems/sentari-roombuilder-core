@@ -12,6 +12,10 @@ export const colors = {
   teal: "#3DB4FF",
   sky: "#00D4FF",
   amber: "#B5701A",
+  // Live-fire red. The brand rule keeps amber for alerts, but rounds going out
+  // is not an alert — it's a distinct, instantaneous event on the map, and amber
+  // beside the blue gun line reads as a warning rather than "shooting".
+  danger: "#EF4444",
   // dark ops-console chrome (must match tailwind.config.js)
   canvas: "#0C1219",
   surface: "#111A24",

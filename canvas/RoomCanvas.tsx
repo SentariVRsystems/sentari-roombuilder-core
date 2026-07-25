@@ -160,7 +160,10 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, mode = "
         <Rect x={0.5} y={0.5} width={VBW - 1} height={VBH - 1} fill="none" stroke={colors.hairline} strokeWidth={1} />
         {room.objects.map((o) => {
           const d = displayObject(o);
-          return <RoomObject key={o.id} o={d} selected={o.id === selectedObjectId} />;
+          // A target the trainee killed is drawn struck-through, so the instructor
+          // can tell "cleared" from "still standing there" at a glance.
+          const ov = npcOverride && isNpcKind(o.kind) ? npcOverride[o.id] : undefined;
+          return <RoomObject key={o.id} o={d} selected={o.id === selectedObjectId} dead={ov?.alive === false} />;
         })}
         {wallStart && (
           <Circle cx={toSvgX(wallStart.x)} cy={toSvgY(wallStart.y)} r={5} fill={colors.teal} stroke={colors.canvas} strokeWidth={1.5} />

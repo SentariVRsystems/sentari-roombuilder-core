@@ -27,6 +27,7 @@ export type TrackMark = {
   y: number;
   facing: number; // head/view heading in degrees (0 = +x / east, clockwise)
   gunAngle: number; // where the weapon points (degrees)
+  firing?: boolean; // fired since the last pose — the gun line goes red
   trail: TrailPoint[];
 };
 
@@ -45,7 +46,7 @@ export type NpcTrack = { id: string; path: NpcFrame[] };
 
 // A live/sampled NPC position, keyed by the layout object id. Screens override
 // the static NPC marker with this so targets move on the map.
-export type NpcPositions = Record<string, { x: number; y: number; facing: number }>;
+export type NpcPositions = Record<string, { x: number; y: number; facing: number; alive?: boolean }>;
 
 // A recorded run, normalized so timestamps start at 0.
 export type Replay = {
