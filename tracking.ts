@@ -49,6 +49,12 @@ export type TrackedHeadset = {
 export type NpcFrame = { x: number; y: number; facing: number; alive?: boolean; t: number };
 export type NpcTrack = { id: string; path: NpcFrame[] };
 
+// A door's swing over the course of a run, so the replay shows it opening rather
+// than sitting shut. Same recorded-or-it-never-happened rule as NPC kills and the
+// firing flag: if the frame doesn't carry it, playback can't invent it.
+export type DoorFrame = { angle: number; t: number };
+export type DoorTrack = { id: string; path: DoorFrame[] };
+
 // A live/sampled NPC position, keyed by the layout object id. Screens override
 // the static NPC marker with this so targets move on the map.
 export type NpcPositions = Record<string, { x: number; y: number; facing: number; alive?: boolean }>;
@@ -58,6 +64,7 @@ export type Replay = {
   roomId: string;
   tracks: { id: string; deviceName: string; path: Frame[] }[];
   npcTracks?: NpcTrack[]; // recorded NPC motion (empty on older runs)
+  doorTracks?: DoorTrack[]; // recorded door swing (empty on older runs)
   duration: number; // ms
   t: number; // playhead, ms
   playing: boolean;
@@ -76,6 +83,20 @@ export function sampleNpcsAt(replay: Replay, t: number): NpcPositions {
     // Carry `alive` so the replay marks kills the same way the live map does —
     // without it a recorded run showed every target still standing.
     out[tr.id] = { x: f.x, y: f.y, facing: f.facing, alive: f.alive };
+  }
+  return out;
+}
+
+/// Door angles at the playhead, keyed by object id — the replay's equivalent of
+/// the live doorStates stream.
+export function sampleDoorsAt(replay: Replay, t: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const tr of replay.doorTracks ?? []) {
+    const path = tr.path;
+    if (!path.length) continue;
+    let i = 0;
+    while (i + 1 < path.length && path[i + 1].t <= t) i++;
+    out[tr.id] = path[i].angle;
   }
   return out;
 }
