@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { GestureResponderEvent, LayoutChangeEvent, PanResponder, Pressable, Text, View } from "react-native";
 import type { View as RNView } from "react-native";
-import Svg, { Circle, G, Line, Rect } from "react-native-svg";
-import { CELL, CELL_METERS, isNpcKind, toSvgX, toSvgY, type PlacedObject, type Room } from "../rooms";
+import Svg, { Circle, G, Line, Path, Rect } from "react-native-svg";
+import { CELL, CELL_METERS, isNpcKind, paletteById, toSvgX, toSvgY, type PlacedObject, type Room } from "../rooms";
 import { colors } from "../theme";
 import { RoomObject } from "./RoomObject";
 import { LiveTrackingLayer } from "./LiveTrackingLayer";
 import type { NpcPositions, TrackMark } from "../tracking";
-import type { DoorAngles } from "../protocol";
+import type { BoundsPoint, DoorAngles } from "../protocol";
 
 type DragState = { id: string; mode: "move" | "rotate"; dcx: number; dcy: number; rot: number; moved: boolean };
 
@@ -17,6 +17,7 @@ type Props = {
   live: TrackMark[] | null; // headset marks to overlay (live or replay)
   npcOverride?: NpcPositions; // move targets to their live/replay positions (by object id)
   doorAngles?: DoorAngles; // live swing angle per door id — draws the leaf where it is
+  bounds?: BoundsPoint[]; // the trainee's real space, meters relative to the start cell
   mode?: "edit" | "wall"; // wall = click two points to place a wall
   wallStart?: { x: number; y: number } | null; // first wall point, awaiting the second
   onSelect: (id: string | null) => void;
@@ -30,7 +31,7 @@ type Props = {
 // on absolutely-positioned View overlays (PanResponder on SVG nodes is flaky on
 // web). Object overlays handle tap-to-select, drag-to-move, and Shift+drag to
 // rotate freely. In wall mode, clicks on the ground place a two-point wall.
-export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngles, mode = "edit", wallStart, onSelect, onMove, onRotate, onCanvasPoint, readOnly }: Props) {
+export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngles, bounds, mode = "edit", wallStart, onSelect, onMove, onRotate, onCanvasPoint, readOnly }: Props) {
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null); // mirror, for commit outside setState
@@ -89,6 +90,17 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
   const roomHm = roomH * CELL_METERS;
   const barMeters = roomWm >= 10 ? 2 : 1;
   const barPx = (barMeters / CELL_METERS) * pxPerCell;
+
+  // Bounds corners -> SVG, anchored on the room's start cell (the same cell the
+  // headset anchors the room to, so the outline lands where the trainee stood).
+  const boundsPath = useMemo(() => {
+    if (!bounds || bounds.length < 3) return null;
+    const start = room.objects.find((o) => paletteById[o.kind]?.render === "start");
+    const ax = start ? start.x : roomW / 2;
+    const ay = start ? start.y : roomH / 2;
+    const pts = bounds.map((p) => `${toSvgX(ax + p.x / CELL_METERS)} ${toSvgY(ay + p.y / CELL_METERS)}`);
+    return `M ${pts.join(" L ")} Z`;
+  }, [bounds, room.objects, roomW, roomH]);
 
   // Object with its live drag/rotate override applied.
   const displayObject = (o: PlacedObject): PlacedObject => {
@@ -159,6 +171,14 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
     >
       <Svg width="100%" height="100%" viewBox={`0 0 ${VBW} ${VBH}`} preserveAspectRatio="xMidYMid meet">
         <G>{grid}</G>
+        {/* The trainee's REAL space, walked corner to corner in the headset. Drawn
+            under everything as a reference outline — it constrains nothing, it just
+            shows how much floor the authored room actually has to fit into. The
+            points arrive in meters relative to the start, so they hang off the
+            room's start cell (or its centre when no start is placed yet). */}
+        {boundsPath && (
+          <Path d={boundsPath} fill="none" stroke={colors.snow} strokeWidth={1.4} strokeDasharray="6 4" opacity={0.5} />
+        )}
         <Rect x={0.5} y={0.5} width={VBW - 1} height={VBH - 1} fill="none" stroke={colors.hairline} strokeWidth={1} />
         {room.objects.map((o) => {
           const d = displayObject(o);

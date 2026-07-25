@@ -67,6 +67,23 @@ export type NpcPose = { id: string; x: number; y: number; facing: number; alive:
 export type DoorState = { id: string; angle: number };
 export type DoorAngles = Record<string, number>;
 
+// The four corners of a headset's real space, in METERS on the map's axes,
+// relative to the placed start. Reference geometry only — the Room Builder
+// outlines it so the instructor can see the space they're authoring into.
+export type BoundsPoint = { x: number; y: number };
+
+export function parseBounds(m: unknown): BoundsPoint[] {
+  const b = m as { type?: string; points?: unknown };
+  if (!b || b.type !== "bounds" || !Array.isArray(b.points)) return [];
+  const out: BoundsPoint[] = [];
+  for (const raw of b.points) {
+    const p = raw as Partial<BoundsPoint>;
+    if (!p || typeof p.x !== "number" || typeof p.y !== "number") continue;
+    out.push({ x: Number(p.x) || 0, y: Number(p.y) || 0 });
+  }
+  return out;
+}
+
 export function parseDoorStates(m: unknown): DoorState[] {
   const b = m as { type?: string; doors?: unknown };
   if (!b || b.type !== "doorStates" || !Array.isArray(b.doors)) return [];
