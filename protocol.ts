@@ -72,6 +72,19 @@ export type DoorAngles = Record<string, number>;
 // outlines it so the instructor can see the space they're authoring into.
 export type BoundsPoint = { x: number; y: number };
 
+// Order corners around their centre so ANY click order draws a proper quad.
+// Marking them out of sequence (say 1-2-4-3) otherwise produced a bowtie, since
+// the outline just connects them as given. Sorting by angle about the centroid
+// walks the perimeter, which is correct for any convex set — and a room's four
+// corners are convex. Deliberately not applied to concave shapes: with only four
+// points there's no ambiguity worth guessing at.
+export function orderBoundsCorners(points: BoundsPoint[]): BoundsPoint[] {
+  if (points.length < 3) return points;
+  const cx = points.reduce((a, p) => a + p.x, 0) / points.length;
+  const cy = points.reduce((a, p) => a + p.y, 0) / points.length;
+  return [...points].sort((a, b) => Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx));
+}
+
 export function parseBounds(m: unknown): BoundsPoint[] {
   const b = m as { type?: string; points?: unknown };
   if (!b || b.type !== "bounds" || !Array.isArray(b.points)) return [];
@@ -81,7 +94,7 @@ export function parseBounds(m: unknown): BoundsPoint[] {
     if (!p || typeof p.x !== "number" || typeof p.y !== "number") continue;
     out.push({ x: Number(p.x) || 0, y: Number(p.y) || 0 });
   }
-  return out;
+  return orderBoundsCorners(out);
 }
 
 export function parseDoorStates(m: unknown): DoorState[] {
