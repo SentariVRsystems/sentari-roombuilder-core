@@ -76,6 +76,12 @@ export function RoomObject({
         {(() => {
           const hx = cx + w / 2; // hinge end
           const R = w;           // leaf length = door width
+          // The swing geometry is drawn in the ACCENT, not the door's own colour.
+          // Black Door is #33383E against a #0C1219 canvas — an arc at 10-75%
+          // opacity in that colour is invisible, which read as "the arc isn't
+          // working". The slab keeps the palette colour so doors stay
+          // distinguishable; only the swing hint is forced legible.
+          const swing = colors.teal;
           const a = (DOOR_SWING_DEG * Math.PI) / 180;
           // Free end at rest (pointing -x from the hinge) swung CW by the limit.
           const ex = hx - R * Math.cos(a);
@@ -85,16 +91,16 @@ export function RoomObject({
               {/* swept area + arc */}
               <Path
                 d={`M ${hx} ${cy} L ${hx - R} ${cy} A ${R} ${R} 0 0 1 ${ex} ${ey} Z`}
-                fill={fill}
-                opacity={0.1}
+                fill={swing}
+                opacity={0.12}
               />
               <Path
                 d={`M ${hx - R} ${cy} A ${R} ${R} 0 0 1 ${ex} ${ey}`}
                 fill="none"
-                stroke={fill}
-                strokeWidth={1.2}
+                stroke={swing}
+                strokeWidth={1.3}
                 strokeDasharray="3 2"
-                opacity={0.75}
+                opacity={0.8}
               />
               {/* the leaf at its LIVE angle when the headset is reporting one,
                   otherwise parked at the full-open extent as a static hint */}
@@ -106,9 +112,9 @@ export function RoomObject({
                 return (
                   <Path
                     d={`M ${hx} ${cy} L ${lx} ${ly}`}
-                    stroke={fill}
-                    strokeWidth={live ? 3 : 1.6}
-                    opacity={live ? 0.95 : 0.5}
+                    stroke={swing}
+                    strokeWidth={live ? 3.5 : 1.8}
+                    opacity={live ? 1 : 0.55}
                     strokeLinecap="round"
                   />
                 );
