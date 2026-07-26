@@ -33,6 +33,13 @@ type Props = {
 // rotate freely. In wall mode, clicks on the ground place a two-point wall.
 export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngles, bounds, mode = "edit", wallStart, onSelect, onMove, onRotate, onCanvasPoint, readOnly }: Props) {
   const [size, setSize] = useState({ w: 0, h: 0 });
+  // Canvas pan, in cells. The whole stage (grid, room, bounds, tracking) drags
+  // together — the trainee's real-space outline can extend past the room grid,
+  // and without panning it was simply cropped off-screen.
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const panRef = useRef(pan);
+  panRef.current = pan;
+  const panStartRef = useRef<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null); // mirror, for commit outside setState
   const setDragBoth = (d: DragState | null) => {
@@ -116,6 +123,7 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
   };
 
   // A click on the ground: in wall mode, feed the point to the room builder.
+  // (Pan offset is subtracted so a point lands where the cursor shows it.)
   const handleGround = (e: GestureResponderEvent) => {
     if (mode !== "wall" || !onCanvasPoint) {
       onSelect(null);
@@ -124,9 +132,40 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
     const px = e.nativeEvent.pageX;
     const py = e.nativeEvent.pageY;
     containerRef.current?.measureInWindow((ox, oy) => {
-      if (pxPerCell > 0 && Number.isFinite(px)) onCanvasPoint((px - ox) / pxPerCell, (py - oy) / pxPerCell);
+      if (pxPerCell > 0 && Number.isFinite(px))
+        onCanvasPoint((px - ox) / pxPerCell - panRef.current.x, (py - oy) / pxPerCell - panRef.current.y);
     });
   };
+
+  // Ground gestures: a DRAG grabs the grid and pans the stage; a plain CLICK
+  // keeps the old behavior (deselect, or drop a wall point in wall mode).
+  const groundCb = useRef({ handleGround });
+  groundCb.current = { handleGround };
+  const groundResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6,
+        onPanResponderGrant: () => {
+          panStartRef.current = { ...panRef.current };
+        },
+        onPanResponderMove: (_, g) => {
+          const s = panStartRef.current;
+          if (!s || pxPerCell <= 0) return;
+          if (Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6)
+            setPan({ x: s.x + g.dx / pxPerCell, y: s.y + g.dy / pxPerCell });
+        },
+        onPanResponderRelease: (evt, g) => {
+          const wasPan = Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6;
+          panStartRef.current = null;
+          if (!wasPan) groundCb.current.handleGround(evt);
+        },
+        onPanResponderTerminate: () => {
+          panStartRef.current = null;
+        },
+      }),
+    [pxPerCell]
+  );
 
   // ── Object drag/rotate handlers (edit mode) ──
   // Shift → rotate. Read it from the pointer event (works with automation and
@@ -147,8 +186,8 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
     }
     const o = room.objects.find((x) => x.id === id);
     if (!o) return;
-    const cx = originRef.current.x + o.x * pxPerCell;
-    const cy = originRef.current.y + o.y * pxPerCell;
+    const cx = originRef.current.x + (o.x + panRef.current.x) * pxPerCell;
+    const cy = originRef.current.y + (o.y + panRef.current.y) * pxPerCell;
     const rot = (Math.atan2(g.moveY - cy, g.moveX - cx) * 180) / Math.PI;
     setDragBoth({ ...prev, rot, moved });
   };
@@ -172,6 +211,7 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
       style={[{ width: "100%", aspectRatio: roomW / roomH, backgroundColor: colors.canvas, borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: mode === "wall" ? colors.teal : colors.hairline }, { userSelect: "none" } as any]}
     >
       <Svg width="100%" height="100%" viewBox={`0 0 ${VBW} ${VBH}`} preserveAspectRatio="xMidYMid meet">
+        <G transform={`translate(${pan.x * CELL} ${pan.y * CELL})`}>
         <G>{grid}</G>
         {/* The trainee's REAL space, walked corner to corner in the headset. Drawn
             under everything as a reference outline — it constrains nothing, it just
@@ -202,15 +242,16 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
           <Circle cx={toSvgX(wallStart.x)} cy={toSvgY(wallStart.y)} r={5} fill={colors.teal} stroke={colors.canvas} strokeWidth={1.5} />
         )}
         {live && <LiveTrackingLayer headsets={live} />}
+        </G>
       </Svg>
 
       {/* Interaction overlays (absolute px). In wall mode, the ground captures
           clicks to place points; object overlays are suppressed. */}
       {size.w > 0 && !readOnly && (
         <View style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}>
-          <Pressable
-            style={[{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }, wallCursor ? ({ cursor: "crosshair" } as any) : null]}
-            onPress={handleGround}
+          <View
+            {...groundResponder.panHandlers}
+            style={[{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }, wallCursor ? ({ cursor: "crosshair" } as any) : ({ cursor: "grab" } as any)]}
           />
           {editable &&
             room.objects.map((o) => (
@@ -218,12 +259,23 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
                 key={o.id}
                 object={o}
                 pxPerCell={pxPerCell}
+                panPx={{ x: pan.x * pxPerCell, y: pan.y * pxPerCell }}
                 onGrant={(shiftKey) => onGrant(o.id, shiftKey)}
                 onMove={(g) => onDragMove(o.id, g)}
                 onEnd={(g) => onDragEnd(o.id, g)}
               />
             ))}
         </View>
+      )}
+
+      {/* Panned away from home → one tap brings the stage back. */}
+      {(pan.x !== 0 || pan.y !== 0) && (
+        <Pressable
+          onPress={() => setPan({ x: 0, y: 0 })}
+          style={{ position: "absolute", right: 8, top: 8, backgroundColor: "rgba(12,18,25,0.85)", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: colors.hairline }}
+        >
+          <Text style={{ color: colors.teal, fontSize: 10, fontFamily: "JetBrainsMono_500Medium" }}>⌖ RECENTER</Text>
+        </Pressable>
       )}
 
       {/* Scale reference — constant-size labels, non-interactive so they never
@@ -250,12 +302,14 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
 function DragOverlay({
   object,
   pxPerCell,
+  panPx,
   onGrant,
   onMove,
   onEnd,
 }: {
   object: PlacedObject;
   pxPerCell: number;
+  panPx: { x: number; y: number }; // stage pan, so hitboxes track the drawn object
   onGrant: (shiftKey: boolean) => void;
   onMove: (g: { dx: number; dy: number; moveX: number; moveY: number }) => void;
   onEnd: (g: { dx: number; dy: number }) => void;
@@ -268,8 +322,8 @@ function DragOverlay({
   const bh = Math.abs(wpx * Math.sin(rad)) + Math.abs(hpx * Math.cos(rad));
   const hitW = Math.max(bw, 30);
   const hitH = Math.max(bh, 30);
-  const left = object.x * pxPerCell - hitW / 2;
-  const top = object.y * pxPerCell - hitH / 2;
+  const left = object.x * pxPerCell + panPx.x - hitW / 2;
+  const top = object.y * pxPerCell + panPx.y - hitH / 2;
 
   const cb = useRef({ onGrant, onMove, onEnd });
   cb.current = { onGrant, onMove, onEnd };
