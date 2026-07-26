@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, TextInput, View } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { Room } from "../rooms";
 import { colors } from "../theme";
@@ -15,6 +15,7 @@ export function RoomLibraryPanel({
   selectedRoomId,
   pushedRoomId,
   cloud,
+  fill = false,
   onSelect,
   onNew,
   onRename,
@@ -22,6 +23,9 @@ export function RoomLibraryPanel({
   onDelete,
   onPush,
 }: {
+  /** Stretch to the parent column's height and scroll the LIST inside the card
+   *  (desktop side-column mode) instead of growing with content. */
+  fill?: boolean;
   rooms: Room[];
   selectedRoomId: string | null;
   pushedRoomId: string | null;
@@ -35,6 +39,8 @@ export function RoomLibraryPanel({
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [scroll, setScroll] = useState({ viewH: 0, contentH: 0, y: 0 });
+  const moreBelow = scroll.contentH > scroll.viewH + 4 && scroll.y + scroll.viewH < scroll.contentH - 8;
 
   const startEdit = (r: Room) => {
     setEditingId(r.id);
@@ -45,8 +51,15 @@ export function RoomLibraryPanel({
     setEditingId(null);
   };
 
+  const list =
+    rooms.length === 0 ? (
+      <Muted className="py-6 text-center">No rooms yet — tap New to build one.</Muted>
+    ) : (
+      rooms.map((r) => renderRoom(r))
+    );
+
   return (
-    <Card className="min-w-[240px]">
+    <Card className="min-w-[240px]" style={fill ? { flex: 1 } : undefined}>
       <View className="flex-row items-center justify-between mb-3">
         <View className="flex-row items-center gap-2">
           <Kicker>ROOM LIBRARY</Kicker>
@@ -59,10 +72,51 @@ export function RoomLibraryPanel({
         <Button label="New" variant="secondary" icon="add" onPress={() => onNew()} className="h-9 px-3" />
       </View>
 
-      {rooms.length === 0 ? (
-        <Muted className="py-6 text-center">No rooms yet — tap New to build one.</Muted>
+      {!fill ? (
+        list
       ) : (
-        rooms.map((r) => {
+        <View style={{ flex: 1, position: "relative", minHeight: 0 }}>
+          <ScrollView
+            style={{ flex: 1 }}
+            showsVerticalScrollIndicator
+            onLayout={(e) => {
+              const h = e.nativeEvent.layout.height;
+              setScroll((s) => (s.viewH === h ? s : { ...s, viewH: h }));
+            }}
+            onContentSizeChange={(_, h) => setScroll((s) => (s.contentH === h ? s : { ...s, contentH: h }))}
+            onScroll={(e) => {
+              const y = e.nativeEvent.contentOffset.y;
+              setScroll((s) => ({ ...s, y }));
+            }}
+            scrollEventThrottle={32}
+          >
+            {list}
+          </ScrollView>
+          {moreBelow && (
+            <View
+              pointerEvents="none"
+              style={
+                {
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: 40,
+                  justifyContent: "flex-end",
+                  alignItems: "center",
+                  backgroundImage: `linear-gradient(rgba(17,26,36,0), ${colors.surface})`,
+                } as any
+              }
+            >
+              <Mono className="text-[10px] text-brand-snow/50">▾ SCROLL FOR MORE</Mono>
+            </View>
+          )}
+        </View>
+      )}
+    </Card>
+  );
+
+  function renderRoom(r: Room) {
           const selected = r.id === selectedRoomId;
           const live = r.id === pushedRoomId;
           return (
@@ -109,10 +163,7 @@ export function RoomLibraryPanel({
               )}
             </View>
           );
-        })
-      )}
-    </Card>
-  );
+  }
 }
 
 function IconBtn({ icon, onPress }: { icon: keyof typeof Ionicons.glyphMap; onPress: () => void }) {

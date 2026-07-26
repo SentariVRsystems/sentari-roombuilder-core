@@ -341,6 +341,7 @@ wss.on("connection", (ws) => {
             civiliansActive: Number(msg.civiliansActive) || 0,
             muzzleFlagSeconds: Number(msg.muzzleFlagSeconds) || 0,
             muzzleFlagEvents: Number(msg.muzzleFlagEvents) || 0,
+            shotByHostile: !!msg.shotByHostile,
             t: Date.now(),
           });
         break;
