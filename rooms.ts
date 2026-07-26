@@ -117,6 +117,9 @@ const DOORS: { id: string; fill: string }[] = [
   { id: "Brown Door", fill: "#8B5E3C" },
   { id: "White Door", fill: "#CFC9BE" },
   { id: "Black Door", fill: "#33383E" },
+  // A doorway with no leaf — walkable, shootable-through, cuts the wall like
+  // any door. The map draws it as two posts with a dashed opening.
+  { id: "Open Door Frame", fill: "#7A8188" },
 ];
 
 // Targets/NPCs from Resources/BuildingMaterials/NPCs/NPCs — the real placeable
@@ -164,7 +167,7 @@ export const FURNITURE_TYPES: string[] = FURNITURE.map((c) => c.category);
 export const PALETTE: PaletteDef[] = [
   ...WALL_MATERIALS.map<PaletteDef>((m) => ({
     kind: m.id, label: m.id, section: "Walls", category: "Walls", place: "wall", render: "rect",
-    defaultW: 4, defaultH: 0.5, fill: m.fill, stroke: "rgba(247,249,251,0.35)",
+    defaultW: 4, defaultH: 0.375, fill: m.fill, stroke: "rgba(247,249,251,0.35)",
   })),
   ...DOORS.map<PaletteDef>((d) => ({
     kind: d.id, label: d.id, section: "Doors", category: "Doors", place: "point", render: "rect",
@@ -412,6 +415,11 @@ export function wallsWithDoorGaps(objects: PlacedObject[]): PlacedObject[] {
 
   const MIN_SEG = 0.2; // cells — drop slivers left after cutting
   const MAX_ANGLE = 25; // door must be ~parallel to the wall to cut it
+  // The headset places door PREFABS at their native meter size (frame ~1.1m
+  // outside-to-outside) regardless of the door's cell footprint. The gap has to
+  // clear the REAL frame: cut it narrower and invisible wall stubs poke into
+  // the opening and eat shots fired near the frame posts.
+  const DOOR_FRAME_CELLS = 1.15 / CELL_METERS;
   const out: PlacedObject[] = [];
 
   for (const o of objects) {
@@ -435,7 +443,8 @@ export function wallsWithDoorGaps(objects: PlacedObject[]): PlacedObject[] {
       const perp = Math.abs(px * -uy + py * ux); // perpendicular distance to the line
       if (perp > halfThick) continue; // door isn't sitting on this wall
       if (t < -d.w / 2 || t > len + d.w / 2) continue; // door is past the wall's span
-      gaps.push([t - d.w / 2, t + d.w / 2]);
+      const half = Math.max(d.w / 2, DOOR_FRAME_CELLS / 2);
+      gaps.push([t - half, t + half]);
     }
     if (!gaps.length) {
       out.push(o);

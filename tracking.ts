@@ -47,7 +47,7 @@ export type TrackedHeadset = {
 };
 
 // One NPC's recorded motion: position (cells) + facing over time.
-export type NpcFrame = { x: number; y: number; facing: number; alive?: boolean; t: number };
+export type NpcFrame = { x: number; y: number; facing: number; alive?: boolean; beh?: string; firing?: boolean; t: number };
 export type NpcTrack = { id: string; path: NpcFrame[] };
 
 // A door's swing over the course of a run, so the replay shows it opening rather
@@ -58,7 +58,7 @@ export type DoorTrack = { id: string; path: DoorFrame[] };
 
 // A live/sampled NPC position, keyed by the layout object id. Screens override
 // the static NPC marker with this so targets move on the map.
-export type NpcPositions = Record<string, { x: number; y: number; facing: number; alive?: boolean }>;
+export type NpcPositions = Record<string, { x: number; y: number; facing: number; alive?: boolean; beh?: string; firing?: boolean }>;
 
 // A recorded run, normalized so timestamps start at 0.
 export type Replay = {
@@ -83,7 +83,7 @@ export function sampleNpcsAt(replay: Replay, t: number): NpcPositions {
     const f = path[i];
     // Carry `alive` so the replay marks kills the same way the live map does —
     // without it a recorded run showed every target still standing.
-    out[tr.id] = { x: f.x, y: f.y, facing: f.facing, alive: f.alive };
+    out[tr.id] = { x: f.x, y: f.y, facing: f.facing, alive: f.alive, beh: f.beh, firing: f.firing };
   }
   return out;
 }

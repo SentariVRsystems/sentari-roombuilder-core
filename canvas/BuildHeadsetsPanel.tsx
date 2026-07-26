@@ -18,7 +18,8 @@ import type { TrackedHeadset } from "../tracking";
 const PHASE_LABELS: Record<string, string> = {
   calibrating: "SETTING UP",
   loadout: "AT LOADOUT",
-  armed: "ARMED",
+  armed: "AWAITING ROOM", // weapon picked, standing by — a push stages the house
+  staging: "TO START ZONE", // room pushed — goes hot when they stand in the start zone
   running: "RUNNING",
   debrief: "DEBRIEF",
 };
@@ -29,7 +30,7 @@ function phaseLabel(phase?: string): string | null {
 
 /// Ready = a push starts the run now or the moment they pick a weapon.
 function phaseReady(phase?: string): boolean {
-  return phase === "loadout" || phase === "armed";
+  return phase === "loadout" || phase === "armed" || phase === "staging";
 }
 
 export function BuildHeadsetsPanel({
@@ -78,11 +79,27 @@ export function BuildHeadsetsPanel({
               {/* Where they are in the Instructor-Led flow. Without this the
                   instructor is pushing blind — "in Builder Mode" can't tell a
                   trainee still walking their corners from one armed and waiting. */}
-              {phaseLabel(h.phase) && (
-                <Mono className={`text-[10px] ${phaseReady(h.phase) ? "text-brand-teal" : "text-brand-snow/40"}`}>
-                  {phaseLabel(h.phase)}
-                </Mono>
-              )}
+              {phaseLabel(h.phase) &&
+                (h.phase === "armed" ? (
+                  // Filled chip: this trainee is geared up and waiting on YOU.
+                  <Mono
+                    className="text-[10px]"
+                    style={{
+                      backgroundColor: colors.teal,
+                      color: "#07121C",
+                      paddingHorizontal: 6,
+                      paddingVertical: 1,
+                      borderRadius: 4,
+                      overflow: "hidden",
+                    }}
+                  >
+                    {phaseLabel(h.phase)}
+                  </Mono>
+                ) : (
+                  <Mono className={`text-[10px] ${phaseReady(h.phase) ? "text-brand-teal" : "text-brand-snow/40"}`}>
+                    {phaseLabel(h.phase)}
+                  </Mono>
+                ))}
             </View>
             <View className="flex-row items-center gap-1.5">
               <Ionicons name="battery-half" size={13} color="rgba(247,249,251,0.45)" />

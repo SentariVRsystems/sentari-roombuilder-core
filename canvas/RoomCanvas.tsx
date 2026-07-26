@@ -107,7 +107,9 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
     // A live/replay NPC position overrides the authored one — the marker moves to
     // where the target actually is, facing its heading. Not draggable meanwhile.
     const ov = npcOverride && isNpcKind(o.kind) ? npcOverride[o.id] : undefined;
-    if (ov) return { ...o, x: ov.x, y: ov.y, rotation: ov.facing };
+    // Live behavior overrides the authored one — a "random" target recolors to
+    // its rolled disposition the moment the mission starts.
+    if (ov) return { ...o, x: ov.x, y: ov.y, rotation: ov.facing, ...(ov.beh ? { behavior: ov.beh as PlacedObject["behavior"] } : {}) };
     if (drag?.id !== o.id) return o;
     if (drag.mode === "move") return { ...o, x: o.x + drag.dcx, y: o.y + drag.dcy };
     return { ...o, rotation: drag.rot };
@@ -191,6 +193,7 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
               o={d}
               selected={o.id === selectedObjectId}
               dead={ov?.alive === false}
+              firing={ov?.firing === true}
               openAngle={doorAngles?.[o.id]}
             />
           );

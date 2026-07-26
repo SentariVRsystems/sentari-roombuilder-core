@@ -17,11 +17,12 @@ import fs from "fs";
 import { WebSocketServer } from "ws";
 import { advertise } from "./discovery.js";
 
-const PORT = process.env.PORT || 8080;
 // What this relay advertises itself as over mDNS. Sentari Command and Build &
 // Breach Builder each embed this same relay, so the name is the one thing that
 // differs — a headset browsing _sentari._tcp sees which app is hosting it.
 const RELAY_NAME = process.env.SENTARI_RELAY_NAME || "Sentari Command";
+
+const PORT = process.env.PORT || 8080;
 
 // Persistent friendly-name assignment, keyed by each headset's stable hardware
 // id. First time we see a device we hand it the next free "Quest-NN" and
@@ -114,6 +115,7 @@ function deviceRoster() {
     model: d.model,
     battery: d.battery,
     status: d.status,
+    phase: d.phase || "",
     lesson: d.lesson,
     paused: d.paused,
     elapsedSec: d.elapsedSec,
@@ -194,6 +196,7 @@ wss.on("connection", (ws) => {
     battery: 0,
     status: "online",
     lesson: null,
+    phase: "",
     paused: false,
     elapsedSec: 0,
     space: null,
@@ -231,6 +234,7 @@ wss.on("connection", (ws) => {
         break;
       }
       case "heartbeat": {
+        if (typeof msg.phase === "string") client.phase = msg.phase;
         if (typeof msg.battery === "number") client.battery = msg.battery;
         if (msg.status) client.status = msg.status;
         // JsonUtility on the headset emits "" for a null lesson — treat as none.
@@ -259,22 +263,59 @@ wss.on("connection", (ws) => {
           y: Number(msg.y) || 0,
           facing: Number(msg.facing) || 0,
           gun: Number(msg.gun) || 0,
+          firing: !!msg.firing, // fired since the last pose — the map flashes the gun line
+          rel: !!msg.rel, // true = no room pushed yet: x/y are START-relative cells
           t: Date.now(),
         };
         for (const c of controllers()) send(c.ws, out);
         break;
       }
       case "npcPoses": {
-        // Batched NPC positions from a headset running a pushed room: each NPC's
-        // position (room grid cells) + facing, keyed by the layout object id.
-        // Fanned to controllers only, same as trainee poses.
+        // Batched NPC positions from a headset running a pushed room, keyed by
+        // the layout object id. Fanned to controllers only, like trainee poses.
         if (client.role !== "device" || !Array.isArray(msg.npcs)) break;
         const npcs = [];
         for (const n of msg.npcs) {
           if (!n || typeof n.id !== "string") continue;
-          npcs.push({ id: n.id, x: Number(n.x) || 0, y: Number(n.y) || 0, facing: Number(n.facing) || 0 });
+          // `alive` defaults TRUE for older headset builds that don't send it.
+          npcs.push({
+            id: n.id,
+            x: Number(n.x) || 0,
+            y: Number(n.y) || 0,
+            facing: Number(n.facing) || 0,
+            alive: n.alive !== false,
+            // Live behavior + firing: "random" targets roll at mission start and
+            // comply-then-turn NPCs flip — the map recolors as it changes.
+            ...(typeof n.beh === "string" && n.beh ? { beh: n.beh } : {}),
+            firing: !!n.firing,
+          });
         }
         const out = { type: "npcPoses", deviceName: client.deviceName, npcs, t: Date.now() };
+        for (const c of controllers()) send(c.ws, out);
+        break;
+      }
+      case "bounds": {
+        // The four corners of a headset's real space, relative to its placed
+        // start. Reference geometry for the Room Builder's canvas.
+        if (client.role !== "device" || !Array.isArray(msg.points)) break;
+        const points = msg.points
+          .filter((p) => p && typeof p.x === "number" && typeof p.y === "number")
+          .map((p) => ({ x: Number(p.x) || 0, y: Number(p.y) || 0 }));
+        console.log(`▢ ${client.deviceName} reported ${points.length} room corner(s)`);
+        for (const c of controllers())
+          send(c.ws, { type: "bounds", deviceName: client.deviceName, points, t: Date.now() });
+        break;
+      }
+      case "doorStates": {
+        // Live door swing angles from a headset in a pushed room, keyed by layout
+        // object id. Fanned to controllers only, same as poses.
+        if (client.role !== "device" || !Array.isArray(msg.doors)) break;
+        const doors = [];
+        for (const d of msg.doors) {
+          if (!d || typeof d.id !== "string") continue;
+          doors.push({ id: d.id, angle: Number(d.angle) || 0 });
+        }
+        const out = { type: "doorStates", deviceName: client.deviceName, doors, t: Date.now() };
         for (const c of controllers()) send(c.ws, out);
         break;
       }
@@ -282,9 +323,26 @@ wss.on("connection", (ws) => {
         // The trainee ended the run on the headset. Mirror of the "end" command
         // going the other way, so whichever side stops a run, both agree it's over.
         if (client.role !== "device" || !client.deviceName) break;
-        console.log(`⏹ ${client.deviceName} ended its run`);
+        console.log(`⏹ ${client.deviceName} ended its run (${msg.hits ?? 0}/${msg.shots ?? 0} hits)`);
         for (const c of controllers())
-          send(c.ws, { type: "runEnded", deviceName: client.deviceName, t: Date.now() });
+          send(c.ws, {
+            type: "runEnded",
+            deviceName: client.deviceName,
+            // AAR numbers, so the board can keep a record per run, not just a replay.
+            shots: Number(msg.shots) || 0,
+            hits: Number(msg.hits) || 0,
+            misses: Number(msg.misses) || 0,
+            seconds: Number(msg.seconds) || 0,
+            hostilesDown: Number(msg.hostilesDown) || 0,
+            hostilesCustody: Number(msg.hostilesCustody) || 0,
+            hostilesActive: Number(msg.hostilesActive) || 0,
+            civiliansDown: Number(msg.civiliansDown) || 0,
+            civiliansCustody: Number(msg.civiliansCustody) || 0,
+            civiliansActive: Number(msg.civiliansActive) || 0,
+            muzzleFlagSeconds: Number(msg.muzzleFlagSeconds) || 0,
+            muzzleFlagEvents: Number(msg.muzzleFlagEvents) || 0,
+            t: Date.now(),
+          });
         break;
       }
       case "quizResult": {
@@ -356,7 +414,7 @@ wss.on("connection", (ws) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`\n${RELAY_NAME} relay listening on port ${PORT}`);
+  console.log(`\nSentari relay listening on port ${PORT}`);
   console.log(`  WebSocket : ws://<this-laptop-ip>:${PORT}`);
   console.log(`  Console   : http://<this-laptop-ip>:${PORT}`);
   // Advertise over mDNS so headsets on the same WiFi auto-find us.

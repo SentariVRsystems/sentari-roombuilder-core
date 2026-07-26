@@ -10,11 +10,13 @@ export function RoomObject({
   o,
   selected,
   dead = false,
+  firing = false,
   openAngle,
 }: {
   o: PlacedObject;
   selected: boolean;
   dead?: boolean;
+  firing?: boolean; // this target fired since the last batch — flash it
   openAngle?: number; // live swing angle from the headset, degrees from closed
 }) {
   const def = paletteById[o.kind];
@@ -52,15 +54,38 @@ export function RoomObject({
       // the headset spawns the NPC looking this way. Drawn along local +x; the
       // group's rotate() turns it with the object.
       <>
+        {/* Muzzle flash: a red ring + hot facing arrow for the batch(es) where
+            this target fired — the instructor sees WHO is shooting, not just
+            that shots are happening somewhere. */}
+        {firing && !dead && (
+          <Circle cx={cx} cy={cy} r={npcR * 1.55} fill="none" stroke={colors.danger} strokeWidth={2.5} opacity={0.9} />
+        )}
         <Circle cx={cx} cy={cy} r={npcR} fill={fill} stroke={stroke} strokeWidth={1} />
         <Circle cx={cx} cy={cy} r={npcR / 2.6} fill={colors.canvas} opacity={0.6} />
         <Path
           d={`M ${cx + npcR * 0.5} ${cy} L ${cx + npcR * 1.7} ${cy} m ${-npcR * 0.5} ${-npcR * 0.35} L ${cx + npcR * 1.7} ${cy} l ${-npcR * 0.5} ${npcR * 0.35}`}
-          stroke={fill}
-          strokeWidth={2.5}
+          stroke={firing && !dead ? colors.danger : fill}
+          strokeWidth={firing && !dead ? 3.2 : 2.5}
           strokeLinecap="round"
           fill="none"
         />
+      </>
+    ) : o.kind === "Open Door Frame" ? (
+      // An OPEN threshold — no leaf. Two frame posts and a faint dashed line so
+      // the gap reads as intentional, not as missing geometry.
+      <>
+        <Line
+          x1={cx - w / 2}
+          y1={cy}
+          x2={cx + w / 2}
+          y2={cy}
+          stroke={stroke}
+          strokeWidth={1.2}
+          strokeDasharray="3 3"
+          opacity={0.6}
+        />
+        <Circle cx={cx - w / 2} cy={cy} r={2.6} fill={colors.snow} opacity={0.9} />
+        <Circle cx={cx + w / 2} cy={cy} r={2.6} fill={colors.snow} opacity={0.9} />
       </>
     ) : isDoorKind(o.kind) ? (
       // A DOOR: just the leaf, where it actually is. No swept arc, no preview of
