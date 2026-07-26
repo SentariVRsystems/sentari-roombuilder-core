@@ -366,6 +366,18 @@ export function snapDoorToWall(
 ): { x: number; y: number; rotation: number } | null {
   const r2 = radius * radius;
 
+  // A wall's rotation describes a LINE (mod 180), but a door's rotation is a
+  // DIRECTION — it encodes the hinge side. Snapping used to overwrite the
+  // door's rotation with the wall's raw angle, silently flipping the hinge
+  // (270° door on a 90° wall "matched" and became 90°). Keep the door's
+  // facing: of the two equivalent wall headings, take the one closer to it.
+  const dirDiff = (a: number, b: number) => {
+    const d = Math.abs((a - b) % 360);
+    return Math.min(d, 360 - d);
+  };
+  const alignRot = (wallRot: number) =>
+    dirDiff(doorRotation, wallRot) <= dirDiff(doorRotation, wallRot + 180) ? wallRot : (wallRot + 180) % 360;
+
   let corner: { x: number; y: number; rotation: number } | null = null;
   let bestD = r2;
   for (const o of objects) {
@@ -381,7 +393,7 @@ export function snapDoorToWall(
       const ux = (end.x - other.x) / len;
       const uy = (end.y - other.y) / len;
       bestD = d;
-      corner = { x: end.x + (ux * doorW) / 2, y: end.y + (uy * doorW) / 2, rotation: o.rotation };
+      corner = { x: end.x + (ux * doorW) / 2, y: end.y + (uy * doorW) / 2, rotation: alignRot(o.rotation) };
     }
   }
   if (corner) return corner;
@@ -394,7 +406,7 @@ export function snapDoorToWall(
     const n = nearestOnSeg(x, y, a.x, a.y, b.x, b.y);
     if (n.d2 < bestD) {
       bestD = n.d2;
-      nearest = { x: n.x, y: n.y, rotation: o.rotation };
+      nearest = { x: n.x, y: n.y, rotation: alignRot(o.rotation) };
     }
   }
   if (!nearest) return null;

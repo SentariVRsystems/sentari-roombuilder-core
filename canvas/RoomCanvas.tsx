@@ -221,7 +221,13 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
     setDragBoth(null);
   };
 
-  const editable = !readOnly && mode === "edit" && size.w > 0;
+  // Wall mode keeps NON-wall objects tappable: touching one selects it (the
+  // app exits wall mode on that select), so there's always an obvious way out
+  // of drawing. Walls themselves stay click-through in wall mode — clicks near
+  // them are how new walls snap to existing endpoints/bodies.
+  const editable = !readOnly && (mode === "edit" || mode === "wall") && size.w > 0;
+  const overlayObjects =
+    mode === "wall" ? room.objects.filter((o) => paletteById[o.kind]?.place !== "wall") : room.objects;
   const wallCursor = mode === "wall";
 
   return (
@@ -275,7 +281,7 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
             style={[{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }, wallCursor ? ({ cursor: "crosshair" } as any) : mode === "shiftRoom" ? ({ cursor: "move" } as any) : ({ cursor: "grab" } as any)]}
           />
           {editable &&
-            room.objects.map((o) => (
+            overlayObjects.map((o) => (
               <DragOverlay
                 key={o.id}
                 object={o}
