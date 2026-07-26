@@ -288,6 +288,7 @@ wss.on("connection", (ws) => {
             // comply-then-turn NPCs flip — the map recolors as it changes.
             ...(typeof n.beh === "string" && n.beh ? { beh: n.beh } : {}),
             firing: !!n.firing,
+            det: !!n.det, // detained: surrender animation finished
           });
         }
         const out = { type: "npcPoses", deviceName: client.deviceName, npcs, t: Date.now() };

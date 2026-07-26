@@ -11,12 +11,14 @@ export function RoomObject({
   selected,
   dead = false,
   firing = false,
+  detained = false,
   openAngle,
 }: {
   o: PlacedObject;
   selected: boolean;
   dead?: boolean;
   firing?: boolean; // this target fired since the last batch — flash it
+  detained?: boolean; // surrender animation finished — kneeling, hands behind head
   openAngle?: number; // live swing angle from the headset, degrees from closed
 }) {
   const def = paletteById[o.kind];
@@ -134,6 +136,16 @@ export function RoomObject({
   return (
     <G transform={`rotate(${o.rotation} ${cx} ${cy})`}>
       <G opacity={dead ? 0.32 : 1}>{shape}</G>
+      {/* DETAINED: kneeling with hands behind the head — a handcuff glyph (two
+          linked rings) beside the disc, in teal so it reads as "secured", not a
+          casualty. Counter-rotated so the cuffs stay upright on screen. */}
+      {detained && !dead && (
+        <G transform={`rotate(${-o.rotation} ${cx} ${cy})`}>
+          <Circle cx={cx - npcR * 0.42} cy={cy + npcR * 1.5} r={npcR * 0.34} fill="none" stroke={colors.teal} strokeWidth={1.8} />
+          <Circle cx={cx + npcR * 0.42} cy={cy + npcR * 1.5} r={npcR * 0.34} fill="none" stroke={colors.teal} strokeWidth={1.8} />
+          <Line x1={cx - npcR * 0.1} y1={cy + npcR * 1.5} x2={cx + npcR * 0.1} y2={cy + npcR * 1.5} stroke={colors.teal} strokeWidth={1.8} />
+        </G>
+      )}
       {dead && (
         <G transform={`rotate(${-o.rotation} ${cx} ${cy})`} opacity={0.95}>
           <Line x1={cx - kx} y1={cy - kx} x2={cx + kx} y2={cy + kx} stroke={colors.danger} strokeWidth={2.2} strokeLinecap="round" />

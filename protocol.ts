@@ -83,6 +83,8 @@ export type NpcPose = {
   beh?: string;
   /** Fired at least one round since the last batch — the map flashes the shooter. */
   firing?: boolean;
+  /** DETAINED: the surrender animation finished — kneeling, hands behind the head. */
+  det?: boolean;
 };
 
 // Parse an incoming `npcPoses` batch. Returns [] for anything malformed so a bad
@@ -150,6 +152,7 @@ export function parseNpcPoses(m: unknown): NpcPose[] {
       alive: n.alive !== false,
       ...(typeof n.beh === "string" && n.beh ? { beh: n.beh } : {}),
       firing: !!n.firing,
+      det: !!n.det,
     });
   }
   return out;

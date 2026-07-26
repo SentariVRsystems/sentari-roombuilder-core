@@ -234,6 +234,7 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
               selected={o.id === selectedObjectId}
               dead={ov?.alive === false}
               firing={ov?.firing === true}
+              detained={ov?.det === true}
               openAngle={doorAngles?.[o.id]}
             />
           );
