@@ -7,7 +7,7 @@ import { colors } from "../theme";
 import { RoomObject } from "./RoomObject";
 import { LiveTrackingLayer } from "./LiveTrackingLayer";
 import type { NpcPositions, TrackMark } from "../tracking";
-import type { BoundsPoint, DoorAngles } from "../protocol";
+import { boundsCellPolygon, type BoundsPoint, type DoorAngles } from "../protocol";
 
 type DragState = { id: string; mode: "move" | "rotate"; dcx: number; dcy: number; rot: number; moved: boolean };
 
@@ -17,13 +17,14 @@ type Props = {
   live: TrackMark[] | null; // headset marks to overlay (live or replay)
   npcOverride?: NpcPositions; // move targets to their live/replay positions (by object id)
   doorAngles?: DoorAngles; // live swing angle per door id — draws the leaf where it is
-  bounds?: BoundsPoint[]; // the trainee's real space, meters relative to the start cell
-  mode?: "edit" | "wall"; // wall = click two points to place a wall
+  bounds?: BoundsPoint[]; // the trainee's real space, meters, in walk order
+  mode?: "edit" | "wall" | "shiftRoom"; // wall = two-point wall placement; shiftRoom = drag moves EVERY object
   wallStart?: { x: number; y: number } | null; // first wall point, awaiting the second
   onSelect: (id: string | null) => void;
   onMove: (id: string, x: number, y: number) => void;
   onRotate?: (id: string, rotation: number) => void;
   onCanvasPoint?: (x: number, y: number) => void; // a click on the ground (wall mode)
+  onShiftAll?: (dx: number, dy: number) => void; // shift-room drag committed (cells)
   readOnly?: boolean; // replay mode — no editing overlays
 };
 
@@ -31,7 +32,7 @@ type Props = {
 // on absolutely-positioned View overlays (PanResponder on SVG nodes is flaky on
 // web). Object overlays handle tap-to-select, drag-to-move, and Shift+drag to
 // rotate freely. In wall mode, clicks on the ground place a two-point wall.
-export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngles, bounds, mode = "edit", wallStart, onSelect, onMove, onRotate, onCanvasPoint, readOnly }: Props) {
+export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngles, bounds, mode = "edit", wallStart, onSelect, onMove, onRotate, onCanvasPoint, onShiftAll, readOnly }: Props) {
   const [size, setSize] = useState({ w: 0, h: 0 });
   // Canvas pan, in cells. The whole stage (grid, room, bounds, tracking) drags
   // together — the trainee's real-space outline can extend past the room grid,
@@ -42,6 +43,11 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
   const panStartRef = useRef<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null); // mirror, for commit outside setState
+  // Shift-room: the whole layout rides the drag as a live preview, committed
+  // once on release. Lets a pre-built room be slid into the bounds outline.
+  const [shiftPreview, setShiftPreview] = useState<{ dx: number; dy: number } | null>(null);
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   const setDragBoth = (d: DragState | null) => {
     dragRef.current = d;
     setDrag(d);
@@ -98,19 +104,22 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
   const barMeters = roomWm >= 10 ? 2 : 1;
   const barPx = (barMeters / CELL_METERS) * pxPerCell;
 
-  // Bounds corners -> SVG, anchored on the room's start cell (the same cell the
-  // headset anchors the room to, so the outline lands where the trainee stood).
+  // Bounds corners -> SVG, CENTERED on the room grid — resizing the room adds
+  // grid on all sides of the outline (matching how the grid itself grows from
+  // its middle). The instructor drags the ROOM into the outline (shift-room
+  // mode); the push payload carries where the room ended up relative to the
+  // outline, so the built house lands to match.
   const boundsPath = useMemo(() => {
-    if (!bounds || bounds.length < 3) return null;
-    const start = room.objects.find((o) => paletteById[o.kind]?.render === "start");
-    const ax = start ? start.x : roomW / 2;
-    const ay = start ? start.y : roomH / 2;
-    const pts = bounds.map((p) => `${toSvgX(ax + p.x / CELL_METERS)} ${toSvgY(ay + p.y / CELL_METERS)}`);
+    const poly = bounds ? boundsCellPolygon(bounds, roomW, roomH) : null;
+    if (!poly) return null;
+    const pts = poly.pts.map((p) => `${toSvgX(p.x)} ${toSvgY(p.y)}`);
     return `M ${pts.join(" L ")} Z`;
-  }, [bounds, room.objects, roomW, roomH]);
+  }, [bounds, roomW, roomH]);
 
   // Object with its live drag/rotate override applied.
   const displayObject = (o: PlacedObject): PlacedObject => {
+    // Shift-room drag: every object rides the delta together.
+    if (shiftPreview && mode === "shiftRoom") o = { ...o, x: o.x + shiftPreview.dx, y: o.y + shiftPreview.dy };
     // A live/replay NPC position overrides the authored one — the marker moves to
     // where the target actually is, facing its heading. Not draggable meanwhile.
     const ov = npcOverride && isNpcKind(o.kind) ? npcOverride[o.id] : undefined;
@@ -137,10 +146,11 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
     });
   };
 
-  // Ground gestures: a DRAG grabs the grid and pans the stage; a plain CLICK
-  // keeps the old behavior (deselect, or drop a wall point in wall mode).
-  const groundCb = useRef({ handleGround });
-  groundCb.current = { handleGround };
+  // Ground gestures: a DRAG grabs the grid and pans the stage — or, in
+  // shift-room mode, slides the whole layout — and a plain CLICK keeps the old
+  // behavior (deselect, or drop a wall point in wall mode).
+  const groundCb = useRef({ handleGround, onShiftAll });
+  groundCb.current = { handleGround, onShiftAll };
   const groundResponder = useMemo(
     () =>
       PanResponder.create({
@@ -150,18 +160,28 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
           panStartRef.current = { ...panRef.current };
         },
         onPanResponderMove: (_, g) => {
+          if (pxPerCell <= 0) return;
+          if (Math.abs(g.dx) <= 6 && Math.abs(g.dy) <= 6) return;
+          if (modeRef.current === "shiftRoom") {
+            setShiftPreview({ dx: g.dx / pxPerCell, dy: g.dy / pxPerCell });
+            return;
+          }
           const s = panStartRef.current;
-          if (!s || pxPerCell <= 0) return;
-          if (Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6)
-            setPan({ x: s.x + g.dx / pxPerCell, y: s.y + g.dy / pxPerCell });
+          if (s) setPan({ x: s.x + g.dx / pxPerCell, y: s.y + g.dy / pxPerCell });
         },
         onPanResponderRelease: (evt, g) => {
-          const wasPan = Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6;
+          const wasDrag = Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6;
           panStartRef.current = null;
-          if (!wasPan) groundCb.current.handleGround(evt);
+          if (modeRef.current === "shiftRoom") {
+            setShiftPreview(null);
+            if (wasDrag && pxPerCell > 0) groundCb.current.onShiftAll?.(g.dx / pxPerCell, g.dy / pxPerCell);
+            return;
+          }
+          if (!wasDrag) groundCb.current.handleGround(evt);
         },
         onPanResponderTerminate: () => {
           panStartRef.current = null;
+          setShiftPreview(null);
         },
       }),
     [pxPerCell]
@@ -208,7 +228,7 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
     <View
       ref={containerRef}
       onLayout={onLayout}
-      style={[{ width: "100%", aspectRatio: roomW / roomH, backgroundColor: colors.canvas, borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: mode === "wall" ? colors.teal : colors.hairline }, { userSelect: "none" } as any]}
+      style={[{ width: "100%", aspectRatio: roomW / roomH, backgroundColor: colors.canvas, borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: mode === "wall" || mode === "shiftRoom" ? colors.teal : colors.hairline }, { userSelect: "none" } as any]}
     >
       <Svg width="100%" height="100%" viewBox={`0 0 ${VBW} ${VBH}`} preserveAspectRatio="xMidYMid meet">
         <G transform={`translate(${pan.x * CELL} ${pan.y * CELL})`}>
@@ -252,7 +272,7 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
         <View style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}>
           <View
             {...groundResponder.panHandlers}
-            style={[{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }, wallCursor ? ({ cursor: "crosshair" } as any) : ({ cursor: "grab" } as any)]}
+            style={[{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }, wallCursor ? ({ cursor: "crosshair" } as any) : mode === "shiftRoom" ? ({ cursor: "move" } as any) : ({ cursor: "grab" } as any)]}
           />
           {editable &&
             room.objects.map((o) => (

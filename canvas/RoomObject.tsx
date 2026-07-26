@@ -22,8 +22,14 @@ export function RoomObject({
   openAngle?: number; // live swing angle from the headset, degrees from closed
 }) {
   const def = paletteById[o.kind];
-  // Targets take their color from behavior, not the palette swatch.
-  const fill = def?.render === "npc" ? behaviorColor(o.behavior) : def?.fill ?? colors.steel;
+  // Targets take their color from behavior, not the palette swatch. A captured
+  // target goes white — custody overrides disposition on the map.
+  const fill =
+    def?.render === "npc"
+      ? detained && !dead
+        ? colors.snow
+        : behaviorColor(o.behavior)
+      : def?.fill ?? colors.steel;
   const stroke = def?.stroke ?? "rgba(247,249,251,0.28)";
   const cx = toSvgX(o.x);
   const cy = toSvgY(o.y);
@@ -135,16 +141,11 @@ export function RoomObject({
   const kx = npcR * 0.62;
   return (
     <G transform={`rotate(${o.rotation} ${cx} ${cy})`}>
-      <G opacity={dead ? 0.32 : 1}>{shape}</G>
-      {/* DETAINED: kneeling with hands behind the head — a handcuff glyph (two
-          linked rings) beside the disc, in teal so it reads as "secured", not a
-          casualty. Counter-rotated so the cuffs stay upright on screen. */}
+      <G opacity={dead || detained ? 0.32 : 1}>{shape}</G>
+      {/* CAPTURED: secured in custody — the disc goes white and a bright white
+          ring circles it, the custody counterpart of the dead marker's red X. */}
       {detained && !dead && (
-        <G transform={`rotate(${-o.rotation} ${cx} ${cy})`}>
-          <Circle cx={cx - npcR * 0.42} cy={cy + npcR * 1.5} r={npcR * 0.34} fill="none" stroke={colors.teal} strokeWidth={1.8} />
-          <Circle cx={cx + npcR * 0.42} cy={cy + npcR * 1.5} r={npcR * 0.34} fill="none" stroke={colors.teal} strokeWidth={1.8} />
-          <Line x1={cx - npcR * 0.1} y1={cy + npcR * 1.5} x2={cx + npcR * 0.1} y2={cy + npcR * 1.5} stroke={colors.teal} strokeWidth={1.8} />
-        </G>
+        <Circle cx={cx} cy={cy} r={npcR * 0.85} fill="none" stroke={colors.snow} strokeWidth={2.2} opacity={0.95} />
       )}
       {dead && (
         <G transform={`rotate(${-o.rotation} ${cx} ${cy})`} opacity={0.95}>
