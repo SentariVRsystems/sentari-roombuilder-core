@@ -419,7 +419,11 @@ export function wallsWithDoorGaps(objects: PlacedObject[]): PlacedObject[] {
   // outside-to-outside) regardless of the door's cell footprint. The gap has to
   // clear the REAL frame: cut it narrower and invisible wall stubs poke into
   // the opening and eat shots fired near the frame posts.
-  const DOOR_FRAME_CELLS = 1.06 / CELL_METERS; // prefab frame measures 1.05m — cut flush, not proud
+  // The prefab frame measures 1.05m and its leaf 1.00m. Cut slightly NARROWER
+  // than the frame so the wall ends tuck behind the frame posts (no visible
+  // crack) — but never narrower than the leaf, or invisible wall stubs poke
+  // into the opening and eat shots.
+  const DOOR_FRAME_CELLS = 1.02 / CELL_METERS;
   const out: PlacedObject[] = [];
 
   for (const o of objects) {
