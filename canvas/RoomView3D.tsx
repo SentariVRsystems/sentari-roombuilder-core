@@ -431,8 +431,14 @@ export function RoomView3D({
       const leafLen = Math.max(0.4, o.w - JAMB * 2);
       const hx = o.x + (o.w / 2 - JAMB) * Math.cos(r);
       const hy = o.y + (o.w / 2 - JAMB) * Math.sin(r);
-      const dir = r + Math.PI - a; // leaf points back across the opening when shut
-      const leafDeg = o.rotation + 180 - openDeg;
+      // Leaf direction from the hinge. Shut (a = 0) it lies along the door's
+      // local -x, back across the opening; opening swings it CLOCKWISE on this
+      // y-down world, the same handedness the map uses and the same as the Unity
+      // yaw delta the headset reports. That makes the local direction
+      // (-cos a, -sin a) — i.e. PI + a. Writing PI - a mirrors the swing in y and
+      // sends the door the wrong way round, which is exactly what it did.
+      const dir = r + Math.PI + a;
+      const leafDeg = o.rotation + 180 + openDeg;
       const leaf: PlacedObject = {
         ...o,
         x: hx + (leafLen / 2) * Math.cos(dir),
