@@ -138,6 +138,48 @@ function footprint(o: PlacedObject, wOverride?: number, hOverride?: number) {
 
 type Drawable = { depth: number; node: React.ReactNode };
 
+// Which spans of a wall are solid, in the wall's own local x (its length axis),
+// once every door piercing it has been cut out. Returns [from, to] pairs.
+//
+// A door counts as piercing this wall when its centre sits within the wall's
+// length and close enough across it — the same "is this door on that wall"
+// question snapDoorToWall answers when a door is dropped, just asked at draw
+// time so it also holds for rooms built before snapping, or shifted since.
+function wallSegments(wall: PlacedObject, doors: PlacedObject[]): [number, number][] {
+  const half = wall.w / 2;
+  const r = (wall.rotation * Math.PI) / 180;
+  const c = Math.cos(r);
+  const s = Math.sin(r);
+
+  const cuts: [number, number][] = [];
+  for (const d of doors) {
+    const px = d.x - wall.x;
+    const py = d.y - wall.y;
+    const along = px * c + py * s;
+    const across = -px * s + py * c;
+    // Generous across-tolerance: a door is thicker than the wall it sits in and
+    // may straddle it, so requiring dead-centre would miss real doorways.
+    if (Math.abs(across) > wall.h / 2 + d.h) continue;
+    const a = along - d.w / 2;
+    const b = along + d.w / 2;
+    if (b < -half || a > half) continue; // past either end
+    cuts.push([Math.max(a, -half), Math.min(b, half)]);
+  }
+  if (!cuts.length) return [[-half, half]];
+
+  cuts.sort((p, q) => p[0] - q[0]);
+  const out: [number, number][] = [];
+  let cursor = -half;
+  for (const [a, b] of cuts) {
+    if (a > cursor) out.push([cursor, a]);
+    cursor = Math.max(cursor, b);
+  }
+  if (cursor < half) out.push([cursor, half]);
+  // Drop slivers: a hair of wall left beside an opening reads as a rendering
+  // artefact, not as trim.
+  return out.filter(([a, b]) => b - a > 0.06);
+}
+
 // ── Smoothing ─────────────────────────────────────────────────────
 // Poses arrive off the relay at 5–10 Hz. Drawn as they land, a trainee teleports
 // 15 cm at a time and doors snap between angles — the motion is real, the
@@ -385,6 +427,8 @@ export function RoomView3D({
     return footprint({ ...o, x: o.x + lx * c - ly * s, y: o.y + lx * s + ly * c, w, h });
   };
 
+  const doors = room.objects.filter((o) => isDoorKind(o.kind));
+
   for (const o of room.objects) {
     const def = paletteById[o.kind];
     if (!def) continue;
@@ -469,6 +513,29 @@ export function RoomView3D({
     // ghost so you can see the clear happening behind them. Only walls — fading
     // furniture would just look like a rendering bug.
     const ghosted = isWall && depth > centreDepth;
+
+    // A wall is drawn in SEGMENTS, with a gap wherever a door pierces it.
+    //
+    // Not cosmetic: a wall's sort key is its NEAREST corner, so a long wall
+    // outranks a door sitting in its middle and gets painted last — straight
+    // over the door. Doors in ghosted near walls still showed through the
+    // translucency, which is why only doors in far, opaque walls went missing.
+    // Cutting the opening fixes the ordering and gives an open door something
+    // to be open THROUGH.
+    if (isWall) {
+      for (const [i, seg] of wallSegments(o, doors).entries()) {
+        pushBox({
+          key: `${o.id}-${i}`,
+          corners: localBox(o, (seg[0] + seg[1]) / 2, 0, seg[1] - seg[0], o.h),
+          zTop: objectHeightCells(o),
+          fill: def.fill,
+          rotation: o.rotation,
+          opacity: ghosted ? 0.16 : 1,
+        });
+      }
+      continue;
+    }
+
     pushBox({
       key: o.id,
       corners,
