@@ -52,6 +52,15 @@ const JAMB = 0.18; // width of each side post
 const LINTEL = 0.3; // depth of the header above the opening
 const LEAF_T = 0.12; // the swinging panel is thinner than its frame
 const KNOB_Z = 2; // knob height in cells = 1 m, about where a handle sits
+
+// How finely a wall is chopped for depth sorting, in cells. Everything here is
+// sorted per-object (painter's algorithm), which can only be right when objects
+// are small relative to the distances between them — so the fix for a wall long
+// enough to outrank the people standing in front of it is to stop treating it
+// as one object. 2 cells = 1 m bounds the ordering error to about half a pace,
+// which is finer than anyone stands to a wall, without multiplying the polygon
+// count enough to matter.
+const WALL_CHUNK = 2;
 const FURNITURE_FT: Record<string, number> = {
   Bed: 2,
   Sofa: 2.6,
@@ -378,8 +387,18 @@ export function RoomView3D({
     rotation: number;
     opacity?: number;
     extra?: React.ReactNode; // drawn with the box so it sorts as one thing
+    // Faces (by local-normal index) to leave undrawn. Used where a box abuts an
+    // identical neighbour: the shared face is an internal surface, and drawing
+    // it would band the join with a darker side-face shade.
+    hideFaces?: number[];
+    // Stroke each face in its own fill instead of the background colour. Chunked
+    // walls need this: a dark outline drawn round every chunk turns one wall
+    // into a row of panels. Painting the stroke in the fill also fattens each
+    // face by a hairline, which hides the antialiasing gap where two chunks meet.
+    seamless?: boolean;
   }) => {
-    const { key, corners, zTop, zBottom = 0, fill, rotation, opacity = 1, extra } = p;
+    const { key, corners, zTop, zBottom = 0, fill, rotation, opacity = 1, extra, hideFaces, seamless } = p;
+    const edge = (faceFill: string) => (seamless ? faceFill : colors.canvas);
     const base = corners.map((c) => project(c.x, c.y, zBottom));
     const top = corners.map((c) => project(c.x, c.y, zTop));
     const depth = Math.max(...base.map((p) => p.depth));
@@ -393,6 +412,7 @@ export function RoomView3D({
     const faces: React.ReactNode[] = [];
     for (let i = 0; i < 4; i++) {
       const [nx, ny] = normals[i];
+      if (hideFaces?.includes(i)) continue;
       if (!facesViewer(nx, ny, rotation, yaw)) continue;
       const j = (i + 1) % 4;
       faces.push(
@@ -400,7 +420,7 @@ export function RoomView3D({
           key={`f${i}`}
           points={pts([base[i], base[j], top[j], top[i]])}
           fill={shade(fill, ny === 0 ? 0.62 : 0.78)}
-          stroke={colors.canvas}
+          stroke={edge(shade(fill, ny === 0 ? 0.62 : 0.78))}
           strokeWidth={0.4}
         />
       );
@@ -410,7 +430,7 @@ export function RoomView3D({
       node: (
         <G key={key} opacity={opacity}>
           {faces}
-          <Polygon points={pts(top)} fill={shade(fill, 1)} stroke={colors.canvas} strokeWidth={0.4} />
+          <Polygon points={pts(top)} fill={shade(fill, 1)} stroke={edge(shade(fill, 1))} strokeWidth={0.4} />
           {extra}
         </G>
       ),
@@ -523,15 +543,35 @@ export function RoomView3D({
     // Cutting the opening fixes the ordering and gives an open door something
     // to be open THROUGH.
     if (isWall) {
+      const zTop = objectHeightCells(o);
       for (const [i, seg] of wallSegments(o, doors).entries()) {
-        pushBox({
-          key: `${o.id}-${i}`,
-          corners: localBox(o, (seg[0] + seg[1]) / 2, 0, seg[1] - seg[0], o.h),
-          zTop: objectHeightCells(o),
-          fill: def.fill,
-          rotation: o.rotation,
-          opacity: ghosted ? 0.16 : 1,
-        });
+        // Then CHUNK each solid run. A box can only hold one place in the paint
+        // order, and a long wall's key is its nearest corner — so a trainee
+        // standing in front of the far end of a wall still loses to it and gets
+        // painted over. Chunking bounds that error by the chunk's own length:
+        // the piece behind someone now genuinely sorts behind them.
+        //
+        // The shared faces between chunks are suppressed, so a chunked wall
+        // still reads as one continuous surface rather than a row of blocks.
+        const len = seg[1] - seg[0];
+        const n = Math.max(1, Math.ceil(len / WALL_CHUNK));
+        const step = len / n;
+        for (let k = 0; k < n; k++) {
+          const a = seg[0] + k * step;
+          const hidden: number[] = [];
+          if (k > 0) hidden.push(3); // -x end abuts the previous chunk
+          if (k < n - 1) hidden.push(1); // +x end abuts the next
+          pushBox({
+            key: `${o.id}-${i}-${k}`,
+            corners: localBox(o, a + step / 2, 0, step, o.h),
+            zTop,
+            fill: def.fill,
+            rotation: o.rotation,
+            opacity: ghosted ? 0.16 : 1,
+            hideFaces: hidden,
+            seamless: true,
+          });
+        }
       }
       continue;
     }
