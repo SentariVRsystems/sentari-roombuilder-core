@@ -156,7 +156,21 @@ export async function advertise(port, name = "Sentari Command") {
     // Errors here are never fatal: a blocked 5353 means no auto-discovery, not
     // a dead relay.
     mdns.on("error", (e) => console.warn(`  Discovery : mDNS error (${e.message})`));
-    mdns.on("warning", () => {});
+
+    // multicast-dns reports a FAILED addMembership as a "warning" — one per
+    // adapter it couldn't join. That is exactly the symptom of the Windows case
+    // we care about (a box full of Hyper-V/WSL/VirtualBox adapters where the
+    // join on the real WiFi one fails), so swallowing these threw away the only
+    // evidence of the single most likely reason a headset never appears.
+    // Deduped by message: multicast-dns retries every 5s and would otherwise
+    // scroll the log forever.
+    const warned = new Set();
+    mdns.on("warning", (e) => {
+      const msg = (e && e.message) || String(e);
+      if (warned.has(msg)) return;
+      warned.add(msg);
+      console.warn(`  Discovery : mDNS warning (${msg}) — this adapter won't hear headsets`);
+    });
 
     // Unsolicited announcements, so anything already browsing sees us appear.
     const announce = () => { try { mdns.respond(recordsFor(null)); } catch {} };
