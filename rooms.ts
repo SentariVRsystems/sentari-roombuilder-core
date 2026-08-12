@@ -369,6 +369,49 @@ export function makeWall(kind: string, x1: number, y1: number, x2: number, y2: n
   return { id: newObjectId(), kind, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, rotation, w: len, h: def?.defaultH ?? 0.5 };
 }
 
+// ── The room box follows the layout ─────────────────────────────────────
+// `width`/`height` are not a viewing preference — they go on the wire and tell
+// the headset how big a house to build, and they're what the walked-space
+// outline is centred on. So the box has to contain everything placed in it.
+//
+// The canvas zooms independently of the room now, which means you can scroll
+// out and keep building past the old edge; rather than make you go and nudge a
+// pair of steppers to match, the box grows to cover what you drew. It only ever
+// grows: a room that shrank as you deleted things would move the walls out from
+// under you mid-edit. Fitting a room back DOWN stays deliberate — that's what
+// fitCellsForSpaces / "fit to space" is for.
+
+/** Half-extents of a placed object's axis-aligned box at its current rotation. */
+export function objectExtent(o: PlacedObject): { w: number; h: number } {
+  const r = (o.rotation * Math.PI) / 180;
+  const c = Math.abs(Math.cos(r));
+  const s = Math.abs(Math.sin(r));
+  return { w: (o.w * c + o.h * s) / 2, h: (o.w * s + o.h * c) / 2 };
+}
+
+/**
+ * The room size needed to contain `objects`, never smaller than the current one
+ * and never past MAX_ROOM_CELLS. Returns null when the room already fits, so a
+ * caller can skip the state update entirely on the common path.
+ */
+export function grownRoomSize(
+  objects: PlacedObject[],
+  width: number,
+  height: number,
+  margin = 1
+): { width: number; height: number } | null {
+  let maxX = 0;
+  let maxY = 0;
+  for (const o of objects) {
+    const e = objectExtent(o);
+    maxX = Math.max(maxX, o.x + e.w);
+    maxY = Math.max(maxY, o.y + e.h);
+  }
+  const w = clampRoomCells(Math.max(width, Math.ceil(maxX + margin)));
+  const h = clampRoomCells(Math.max(height, Math.ceil(maxY + margin)));
+  return w === width && h === height ? null : { width: w, height: h };
+}
+
 // ── Connection helpers (walls snap to walls, doors snap onto walls) ──────
 export const isWallKind = (kind: string) => paletteById[kind]?.section === "Walls";
 export const isDoorKind = (kind: string) => paletteById[kind]?.section === "Doors";

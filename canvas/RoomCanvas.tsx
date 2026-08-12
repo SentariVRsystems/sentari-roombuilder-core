@@ -11,6 +11,31 @@ import { boundsCellPolygon, type BoundsPoint, type DoorAngles } from "../protoco
 
 type DragState = { id: string; mode: "move" | "rotate"; dcx: number; dcy: number; rot: number; moved: boolean };
 
+// Zoom range. The floor is set by how far out the grid stays meaningful rather
+// than by any room limit — at 0.3 a max-size 24 m room still fits with room to
+// spare around it. The ceiling is where one 0.5 m cell fills a good chunk of the
+// card, which is as close as placing furniture ever needs.
+const MIN_ZOOM = 0.3;
+const MAX_ZOOM = 4;
+const ZOOM_STEP = 1.15; // per −/+ button press, where a discrete step is wanted
+// Wheel zoom scales with how far you actually scrolled, rather than taking one
+// fixed step per event. A trackpad emits a STREAM of small-delta events for a
+// single flick, so a constant factor per event compounded — ten events of a
+// lazy two-finger scroll multiplied out to 4x and the room shot away from you.
+const WHEEL_SENSITIVITY = 0.001; // per pixel: a ~100px mouse notch ≈ 10%
+const MAX_WHEEL_PX = 60; // clamp momentum spikes so one flick can't jump the view
+
+// Normalize a wheel event to pixels. deltaMode 1 = lines, 2 = pages; a mouse
+// reporting lines would otherwise scroll ~3 and register as 3 pixels of zoom.
+const wheelPixels = (e: WheelEvent) => {
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+  return Math.max(-MAX_WHEEL_PX, Math.min(MAX_WHEEL_PX, e.deltaY * unit));
+};
+// Below this many pixels the 0.5 m lines stop reading as a grid and start
+// reading as grey fill, so only the 1 m lines are drawn.
+const MINOR_LINE_MIN_PX = 7;
+const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
+
 type Props = {
   room: Room;
   selectedObjectId: string | null;
@@ -40,6 +65,14 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const panRef = useRef(pan);
   panRef.current = pan;
+  // View zoom, independent of the room. 1 = the room exactly fills the card (the
+  // old fixed behaviour); below 1 you see grid BEYOND the room's edge, which is
+  // how you build outward. The point of this is to decouple how big a cell LOOKS
+  // from how big the room is — a 24 m room and a 4 m room now draw the same
+  // sized squares, and one square always means half a metre.
+  const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   const panStartRef = useRef<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null); // mirror, for commit outside setState
@@ -55,13 +88,20 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
   const containerRef = useRef<RNView>(null);
   const originRef = useRef({ x: 0, y: 0 }); // canvas top-left in window coords
   const shiftRef = useRef(false);
-  // Per-room grid dimensions (cells) → SVG viewBox. Cell size is fixed, so a
-  // smaller room renders zoomed-in (more px per cell) and a larger one out.
+  // Per-room grid dimensions (cells) → SVG viewBox at zoom 1.
   const roomW = room.width;
   const roomH = room.height;
   const VBW = roomW * CELL;
   const VBH = roomH * CELL;
-  const pxPerCell = size.w > 0 ? size.w / roomW : 0;
+  // Pixels per cell at the current zoom. The container's aspect matches the
+  // viewBox's, so x and y share one scale and every hit-test below can use it.
+  const pxPerCell = size.w > 0 ? (size.w / roomW) * zoom : 0;
+  // Mirrors for the wheel handler, which is a DOM listener and so can't close
+  // over render state.
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+  const roomWRef = useRef(roomW);
+  roomWRef.current = roomW;
 
   // Track the Shift key (web) so a drag can mean "rotate" instead of "move".
   useEffect(() => {
@@ -84,17 +124,82 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
     measureOrigin();
   };
 
-  // Gridlines every cell (0.5 m); every 2nd line (= 1 m) is drawn heavier.
+  // Zoom about a point (in container px), keeping whatever cell is under that
+  // point pinned there. Anchoring to the cursor is what makes wheel-zoom feel
+  // like a map instead of like a slider — you zoom into what you're looking at.
+  const zoomAt = (mx: number, my: number, factor: number) => {
+    const base = sizeRef.current.w > 0 ? sizeRef.current.w / roomWRef.current : 0;
+    if (!base) return;
+    const z0 = zoomRef.current;
+    const z1 = clampZoom(z0 * factor);
+    if (z1 === z0) return; // already against a stop
+    const px0 = base * z0;
+    const px1 = base * z1;
+    const p = panRef.current;
+    // The cell under the cursor, before and after, solved for the new pan.
+    const next = { x: mx / px1 - (mx / px0 - p.x), y: my / px1 - (my / px0 - p.y) };
+    zoomRef.current = z1;
+    panRef.current = next;
+    setZoom(z1);
+    setPan(next);
+  };
+
+  const resetView = () => {
+    zoomRef.current = 1;
+    panRef.current = { x: 0, y: 0 };
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  // Wheel to zoom (web). Attached to the node rather than passed as a prop
+  // because RN has no onWheel, and non-passive so the page doesn't scroll out
+  // from under the canvas while you're working in it.
+  useEffect(() => {
+    const node = containerRef.current as unknown as HTMLElement | null;
+    if (!node || typeof node.addEventListener !== "function") return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = node.getBoundingClientRect();
+      zoomAt(e.clientX - rect.left, e.clientY - rect.top, Math.exp(-wheelPixels(e) * WHEEL_SENSITIVITY));
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+    // zoomAt reads everything it needs from refs, so this binds once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Gridlines every cell (0.5 m); every 2nd line (= 1 m) is drawn heavier. The
+  // grid spans the VISIBLE window, not the room — zooming out has to show the
+  // floor you're about to build onto, not stop at the current edge.
   const grid = useMemo(() => {
+    if (zoom <= 0) return null;
+    const viewW = roomW / zoom;
+    const viewH = roomH / zoom;
+    // One cell of slack each side so lines never pop in at the edges.
+    const x0 = Math.floor(-pan.x) - 1;
+    const y0 = Math.floor(-pan.y) - 1;
+    const x1 = Math.ceil(-pan.x + viewW) + 1;
+    const y1 = Math.ceil(-pan.y + viewH) + 1;
+    // Line widths are in user units, which the viewBox scales — divide by zoom
+    // so a gridline is the same thickness on screen at every zoom level.
+    const major = 1 / zoom;
+    const minor = 0.5 / zoom;
+    const showMinor = (size.w / roomW) * zoom >= MINOR_LINE_MIN_PX;
     const lines: React.ReactNode[] = [];
-    for (let i = 0; i <= roomW; i++) {
-      lines.push(<Line key={`v${i}`} x1={i * CELL} y1={0} x2={i * CELL} y2={VBH} stroke={colors.hairline} strokeWidth={i % 2 === 0 ? 1 : 0.5} />);
+    for (let i = x0; i <= x1; i++) {
+      if (i % 2 !== 0 && !showMinor) continue;
+      lines.push(
+        <Line key={`v${i}`} x1={i * CELL} y1={y0 * CELL} x2={i * CELL} y2={y1 * CELL} stroke={colors.hairline} strokeWidth={i % 2 === 0 ? major : minor} />
+      );
     }
-    for (let j = 0; j <= roomH; j++) {
-      lines.push(<Line key={`h${j}`} x1={0} y1={j * CELL} x2={VBW} y2={j * CELL} stroke={colors.hairline} strokeWidth={j % 2 === 0 ? 1 : 0.5} />);
+    for (let j = y0; j <= y1; j++) {
+      if (j % 2 !== 0 && !showMinor) continue;
+      lines.push(
+        <Line key={`h${j}`} x1={x0 * CELL} y1={j * CELL} x2={x1 * CELL} y2={j * CELL} stroke={colors.hairline} strokeWidth={j % 2 === 0 ? major : minor} />
+      );
     }
     return lines;
-  }, [roomW, roomH, VBW, VBH]);
+  }, [roomW, roomH, zoom, pan.x, pan.y, size.w]);
 
   // Scale reference drawn as constant-size px overlays (not SVG units, so the
   // labels stay legible at any zoom). The bar's LENGTH tracks real distance:
@@ -236,8 +341,17 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
       onLayout={onLayout}
       style={[{ width: "100%", aspectRatio: roomW / roomH, backgroundColor: colors.canvas, borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: mode === "wall" || mode === "shiftRoom" ? colors.teal : colors.hairline }, { userSelect: "none" } as any]}
     >
-      <Svg width="100%" height="100%" viewBox={`0 0 ${VBW} ${VBH}`} preserveAspectRatio="xMidYMid meet">
-        <G transform={`translate(${pan.x * CELL} ${pan.y * CELL})`}>
+      {/* Pan and zoom both live in the viewBox: the origin is the pan and the
+          extent is the zoom. Doing it here rather than as a transform on the
+          content means the grid above can be generated for exactly the window
+          that's visible. */}
+      <Svg
+        width="100%"
+        height="100%"
+        viewBox={`${-pan.x * CELL} ${-pan.y * CELL} ${VBW / zoom} ${VBH / zoom}`}
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <G>
         <G>{grid}</G>
         {/* The trainee's REAL space, walked corner to corner in the headset. Drawn
             under everything as a reference outline — it constrains nothing, it just
@@ -247,7 +361,18 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
         {boundsPath && (
           <Path d={boundsPath} fill="none" stroke={colors.snow} strokeWidth={1.4} strokeDasharray="6 4" opacity={0.5} />
         )}
-        <Rect x={0.5} y={0.5} width={VBW - 1} height={VBH - 1} fill="none" stroke={colors.hairline} strokeWidth={1} />
+        {/* The room's own edge. Now that grid is drawn past it, this is the line
+            that says "this is the house" — so it's brighter than a gridline
+            rather than the same weight, and holds its thickness under zoom. */}
+        <Rect
+          x={0}
+          y={0}
+          width={VBW}
+          height={VBH}
+          fill="none"
+          stroke="rgba(247,249,251,0.28)"
+          strokeWidth={1.5 / zoom}
+        />
         {room.objects.map((o) => {
           const d = displayObject(o);
           // A target the trainee killed is drawn struck-through, so the instructor
@@ -295,14 +420,27 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
         </View>
       )}
 
-      {/* Panned away from home → one tap brings the stage back. */}
-      {(pan.x !== 0 || pan.y !== 0) && (
-        <Pressable
-          onPress={() => setPan({ x: 0, y: 0 })}
-          style={{ position: "absolute", right: 8, top: 8, backgroundColor: "rgba(12,18,25,0.85)", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: colors.hairline }}
-        >
-          <Text style={{ color: colors.teal, fontSize: 10, fontFamily: "JetBrainsMono_500Medium" }}>⌖ RECENTER</Text>
-        </Pressable>
+      {/* Zoom controls. Always present (unlike the old recenter chip, which only
+          appeared once you'd already panned) — a control you can't see is a
+          feature nobody finds. FIT only shows once the view has actually moved. */}
+      {size.w > 0 && (
+        <View style={{ position: "absolute", right: 8, top: 8, alignItems: "flex-end", gap: 4 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: "rgba(12,18,25,0.85)", borderRadius: 6, borderWidth: 1, borderColor: colors.hairline, overflow: "hidden" }}>
+            <ZoomBtn label="−" onPress={() => zoomAt(size.w / 2, size.h / 2, 1 / ZOOM_STEP)} disabled={zoom <= MIN_ZOOM} />
+            <Text style={{ color: "rgba(247,249,251,0.75)", fontSize: 10, fontFamily: "JetBrainsMono_500Medium", minWidth: 40, textAlign: "center" }}>
+              {Math.round(zoom * 100)}%
+            </Text>
+            <ZoomBtn label="+" onPress={() => zoomAt(size.w / 2, size.h / 2, ZOOM_STEP)} disabled={zoom >= MAX_ZOOM} />
+          </View>
+          {(pan.x !== 0 || pan.y !== 0 || zoom !== 1) && (
+            <Pressable
+              onPress={resetView}
+              style={{ backgroundColor: "rgba(12,18,25,0.85)", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: colors.hairline }}
+            >
+              <Text style={{ color: colors.teal, fontSize: 10, fontFamily: "JetBrainsMono_500Medium" }}>⌖ FIT ROOM</Text>
+            </Pressable>
+          )}
+        </View>
       )}
 
       {/* Scale reference — constant-size labels, non-interactive so they never
@@ -323,6 +461,18 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
         </View>
       )}
     </View>
+  );
+}
+
+function ZoomBtn({ label, onPress, disabled }: { label: string; onPress: () => void; disabled: boolean }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={{ width: 24, height: 22, alignItems: "center", justifyContent: "center", opacity: disabled ? 0.3 : 1 }}
+    >
+      <Text style={{ color: colors.snow, fontSize: 13, fontFamily: "JetBrainsMono_500Medium", lineHeight: 15 }}>{label}</Text>
+    </Pressable>
   );
 }
 
