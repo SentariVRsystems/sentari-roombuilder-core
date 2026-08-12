@@ -6,6 +6,7 @@ import {
   FOOT_METERS,
   CELL_METERS,
   behaviorColor,
+  furnitureHeightM,
   isDoorKind,
   isNpcKind,
   isWallKind,
@@ -78,6 +79,10 @@ const FURNITURE_FT: Record<string, number> = {
 function objectHeightCells(o: PlacedObject): number {
   if (isWallKind(o.kind)) return feetToCells(WALL_FT);
   if (isDoorKind(o.kind)) return feetToCells(DOOR_FT);
+  // Furniture measured from its prefab extrudes at its REAL height (a closet
+  // towers, a tub sits low); the per-category feet table is only the fallback.
+  const real = furnitureHeightM(o.kind);
+  if (real !== undefined) return real / CELL_METERS;
   const cat = paletteById[o.kind]?.category;
   return feetToCells((cat ? FURNITURE_FT[cat] : undefined) ?? 2.5);
 }

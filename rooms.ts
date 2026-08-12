@@ -143,9 +143,91 @@ const NPCS: { id: string; label?: string; fill: string }[] = [
 ];
 
 // Furniture categories from FurnitureCatalog. `items` are the exact displayNames.
-// Footprints are cell approximations (1 cell ≈ 0.5 m) for the top-down view.
 const seq = (prefix: string, n: number, start = 1) =>
   Array.from({ length: n }, (_, i) => `${prefix}${String(start + i).padStart(2, "0")}`);
+
+// Real per-item footprints in METERS (w = prefab X, d = prefab Z), measured
+// from each prefab's BoxCollider world AABB in the BuildAndBreach Unity
+// project (tools/measure-footprints.py); `h` is the real prefab height, which
+// the 3D view's extrusion uses. The headset places furniture prefabs
+// at NATIVE scale — RoomBuilderLoader ignores the wire w/h for sizing — so the
+// map has to use the prefab's real size or the plan lies about clearances.
+// Category w/h below remain only as a fallback for items missing here.
+const FOOTPRINT_M: Record<string, { w: number; d: number; h: number }> = {
+  Bed01: { w: 0.97, d: 1.97, h: 0.89 },
+  Bed02: { w: 1.47, d: 1.97, h: 0.89 },
+  Bed03: { w: 0.93, d: 1.84, h: 0.95 },
+  Bed04: { w: 1.48, d: 2.0, h: 0.6 },
+  Bed05: { w: 0.93, d: 1.84, h: 0.44 },
+  Sofa01: { w: 2.36, d: 0.97, h: 0.92 },
+  Sofa02: { w: 0.88, d: 0.97, h: 0.92 },
+  Sofa03: { w: 2.38, d: 0.95, h: 0.74 },
+  Sofa04: { w: 0.96, d: 0.95, h: 0.74 },
+  Sofa05: { w: 0.73, d: 0.78, h: 0.46 },
+  Sofa06: { w: 2.08, d: 0.92, h: 0.76 },
+  Sofa07: { w: 1.2, d: 0.92, h: 0.76 },
+  Sofa08: { w: 2.36, d: 1.16, h: 0.88 },
+  Sofa09: { w: 1.32, d: 1.16, h: 0.89 },
+  Sofa10: { w: 1.32, d: 1.17, h: 0.5 },
+  Sofa11: { w: 2.17, d: 1.02, h: 0.81 },
+  // L-shaped sectionals: the single BoxCollider covers only the main run, so
+  // these two under-report (and their pivot sits off the visual center).
+  Sofa12: { w: 0.9, d: 1.63, h: 0.76 },
+  Sofa13: { w: 0.9, d: 1.63, h: 0.76 },
+  Table01: { w: 1.19, d: 0.73, h: 0.72 },
+  Table02: { w: 0.73, d: 0.73, h: 0.72 },
+  Table03: { w: 1.19, d: 0.73, h: 0.72 },
+  Table04: { w: 1.19, d: 0.73, h: 0.72 },
+  Table05: { w: 1.19, d: 0.73, h: 0.72 },
+  Table06: { w: 1.17, d: 0.71, h: 0.72 },
+  Table07: { w: 1.17, d: 0.71, h: 0.72 },
+  Table08: { w: 1.17, d: 0.71, h: 0.72 },
+  Table09: { w: 1.17, d: 0.71, h: 0.72 },
+  Table10: { w: 1.17, d: 0.71, h: 0.72 },
+  Table11: { w: 1.19, d: 0.73, h: 0.72 },
+  Chair01: { w: 0.44, d: 0.52, h: 0.96 },
+  Chair02: { w: 0.43, d: 0.5, h: 0.98 },
+  CabinetA_Sink: { w: 0.83, d: 0.57, h: 0.91 },
+  CabinetA01: { w: 0.42, d: 0.57, h: 0.91 },
+  CabinetACorner01: { w: 0.77, d: 0.77, h: 0.91 },
+  CabinetB_Sink: { w: 0.83, d: 0.57, h: 0.91 },
+  CabinetB01: { w: 0.42, d: 0.57, h: 0.91 },
+  CabinetB03: { w: 0.41, d: 0.57, h: 0.91 },
+  Closet01: { w: 1.35, d: 0.49, h: 1.96 },
+  Closet02: { w: 1.87, d: 0.49, h: 1.96 },
+  Closet03: { w: 1.56, d: 0.49, h: 1.96 },
+  Closet04: { w: 1.0, d: 0.49, h: 1.96 },
+  Closet05: { w: 1.0, d: 0.49, h: 1.96 },
+  Closet06: { w: 1.0, d: 0.49, h: 1.96 },
+  Closet07: { w: 1.5, d: 0.49, h: 1.96 },
+  Closet08: { w: 1.5, d: 0.49, h: 1.96 },
+  Closet09: { w: 1.98, d: 0.49, h: 1.96 },
+  Closet10: { w: 1.98, d: 0.49, h: 1.96 },
+  Closet11: { w: 0.84, d: 0.49, h: 1.96 },
+  Closet12: { w: 0.84, d: 0.49, h: 1.96 },
+  Drawer01: { w: 1.89, d: 0.4, h: 1.1 },
+  Drawer02: { w: 0.99, d: 0.4, h: 1.1 },
+  Drawer03: { w: 0.41, d: 0.47, h: 1.19 },
+  Drawer04: { w: 0.8, d: 0.28, h: 1.19 },
+  BathroomVanity01: { w: 0.86, d: 0.51, h: 0.88 },
+  BathroomVanity02: { w: 0.86, d: 0.51, h: 0.88 },
+  BathroomVanity03: { w: 1.14, d: 0.51, h: 0.88 },
+  BathroomVanity04: { w: 0.87, d: 0.53, h: 0.68 },
+  BathroomVanity05: { w: 1.14, d: 0.51, h: 0.98 },
+  BathroomVanity06: { w: 1.1, d: 0.51, h: 0.68 },
+  BathroomVanity07: { w: 0.86, d: 0.51, h: 0.88 },
+  BathTub02: { w: 1.47, d: 0.65, h: 0.52 },
+  BathTub05: { w: 1.47, d: 0.72, h: 0.57 },
+  BathTub06: { w: 1.32, d: 1.32, h: 0.56 },
+  BathTub07: { w: 1.39, d: 1.39, h: 0.54 },
+  Toilet01: { w: 0.43, d: 0.65, h: 0.87 },
+  "File Cabinet01": { w: 0.32, d: 0.37, h: 0.97 },
+};
+
+// Real prefab height in meters for a furniture kind, when measured — lets the
+// 3D view extrude a Closet tall and a BathTub low instead of guessing by
+// category.
+export const furnitureHeightM = (kind: string): number | undefined => FOOTPRINT_M[kind]?.h;
 
 const FURNITURE: { category: string; w: number; h: number; fill: string; items: string[] }[] = [
   { category: "Bed", w: 3, h: 4, fill: "#6E5E86", items: seq("Bed", 5) },
@@ -174,10 +256,13 @@ export const PALETTE: PaletteDef[] = [
     defaultW: 2, defaultH: 0.5, fill: d.fill, stroke: LIGHT_STROKE,
   })),
   ...FURNITURE.flatMap((c) =>
-    c.items.map<PaletteDef>((id) => ({
-      kind: id, label: id, section: "Furniture", category: c.category, place: "point", render: "rect",
-      defaultW: c.w, defaultH: c.h, fill: c.fill, stroke: F_STROKE,
-    }))
+    c.items.map<PaletteDef>((id) => {
+      const m = FOOTPRINT_M[id];
+      return {
+        kind: id, label: id, section: "Furniture", category: c.category, place: "point", render: "rect",
+        defaultW: m ? m.w / CELL_METERS : c.w, defaultH: m ? m.d / CELL_METERS : c.h, fill: c.fill, stroke: F_STROKE,
+      };
+    })
   ),
   ...NPCS.map<PaletteDef>((n) => ({
     kind: n.id, label: n.label ?? n.id, section: "Targets", category: "Targets", place: "point", render: "npc",
@@ -226,8 +311,15 @@ export function sanitizeRoom(id: string, data: unknown): Room | null {
       typeof o.x === "number" && typeof o.y === "number" &&
       typeof o.rotation === "number" && typeof o.w === "number" && typeof o.h === "number"
     ) {
+      // Furniture is always built at the prefab's native size (the headset
+      // ignores stored w/h for it), so stale footprints from before the
+      // catalog carried real sizes are corrected on load. Walls keep their
+      // drawn length; everything else keeps what was stored.
+      const def = paletteById[o.kind];
+      const native = def?.section === "Furniture";
       objects.push({
-        id: o.id, kind: o.kind, x: o.x, y: o.y, rotation: o.rotation, w: o.w, h: o.h,
+        id: o.id, kind: o.kind, x: o.x, y: o.y, rotation: o.rotation,
+        w: native ? def.defaultW : o.w, h: native ? def.defaultH : o.h,
         ...(isBehavior(o.behavior) ? { behavior: o.behavior } : {}),
       });
     }
