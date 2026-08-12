@@ -415,6 +415,22 @@ wss.on("connection", (ws) => {
   ws.on("error", () => {});
 });
 
+// A bind failure (usually the port already held by Sentari Command or a
+// Builder) otherwise surfaces as an ASYNC throw — a host that import()ed this
+// module can't catch it, and standalone it prints a raw stack. Log something a
+// human can act on instead, and only exit when we own the process: inside an
+// embedding app (which sets SENTARI_RELAY_NAME) the editor keeps working
+// without the relay, and killing its process would take the whole app down.
+server.on("error", (err) => {
+  if (err && err.code === "EADDRINUSE") {
+    console.error(`\nRelay could not start: port ${PORT} is already in use.`);
+    console.error("  Usually that's Sentari Command or a Build & Breach Builder already running.\n");
+  } else {
+    console.error("\nRelay could not start:", err && err.message ? err.message : err);
+  }
+  if (!process.env.SENTARI_RELAY_NAME) process.exit(1);
+});
+
 server.listen(PORT, () => {
   console.log(`\nSentari relay listening on port ${PORT}`);
   console.log(`  WebSocket : ws://<this-laptop-ip>:${PORT}`);
