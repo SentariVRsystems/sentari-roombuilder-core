@@ -1,5 +1,6 @@
 import React from "react";
-import { Circle, G, Line, Path, Rect } from "react-native-svg";
+import { Circle, G, Image as SvgImage, Line, Path, Rect } from "react-native-svg";
+import { thumbFor } from "../assets/thumbs";
 import { behaviorColor, CELL, DOOR_SWING_DEG, isDoorKind, paletteById, toSvgX, toSvgY, type PlacedObject } from "../rooms";
 import { colors } from "../theme";
 
@@ -132,7 +133,32 @@ export function RoomObject({
         })()}
       </>
     ) : (
-      <Rect x={x} y={y} width={w} height={h} rx={2} fill={fill} stroke={stroke} strokeWidth={1} />
+      // FURNITURE: the rect stays — it's the true footprint, the thing
+      // clearances are planned against — and the game's build-menu thumbnail is
+      // drawn inside it, because on a map of same-colored rects the fill can't
+      // say which of thirteen sofas this one is. Rotates with the group, so the
+      // icon also shows which way the piece faces. Walls have no thumbnail and
+      // keep the plain swatch rect.
+      (() => {
+        const thumb = thumbFor(o.kind);
+        const pad = Math.min(w, h) * 0.08;
+        return (
+          <>
+            <Rect x={x} y={y} width={w} height={h} rx={2} fill={fill} stroke={stroke} strokeWidth={1} />
+            {thumb && (
+              <SvgImage
+                href={thumb}
+                x={x + pad}
+                y={y + pad}
+                width={w - pad * 2}
+                height={h - pad * 2}
+                preserveAspectRatio="xMidYMid meet"
+                opacity={0.95}
+              />
+            )}
+          </>
+        );
+      })()
     );
 
   // A KILLED target: faded, with a red X over it. The marker stays at the spot it

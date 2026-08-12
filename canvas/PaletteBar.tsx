@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
-import { FURNITURE_TYPES, PALETTE, PALETTE_SECTIONS, ROOM_H, ROOM_W, type PaletteDef } from "../rooms";
+import { Image, Pressable, ScrollView, Text, View } from "react-native";
+import { thumbFor } from "../assets/thumbs";
+import { CELL_METERS, FURNITURE_TYPES, PALETTE, PALETTE_SECTIONS, ROOM_H, ROOM_W, type PaletteDef } from "../rooms";
 import { Kicker, Muted } from "../ui/Text";
 
 // The build menu, mirroring Build & Breach. Two clearly-separated levels:
@@ -85,23 +86,39 @@ export function PaletteBar({
           </ScrollView>
         )}
 
-        {/* Items */}
+        {/* Items. Furniture/doors/targets show the game's own build-menu
+            thumbnail — Table07 and Table02 are different builds, and a color
+            chip can't say so. Walls and the start marker keep their swatch.
+            Furniture also states its real footprint (the size the headset
+            will build it at), so clearances can be planned from the menu. */}
         <View className="flex-row flex-wrap gap-2">
           {items.map((item) => {
             const armed = item.place === "wall" && item.kind === activeWallKind;
             const round = item.render === "npc" || item.render === "start";
+            const thumb = thumbFor(item.kind);
+            const size =
+              item.section === "Furniture"
+                ? `${(item.defaultW * CELL_METERS).toFixed(1)} × ${(item.defaultH * CELL_METERS).toFixed(1)} m`
+                : null;
             return (
               <Pressable
                 key={item.kind}
                 onPress={() => onPick(item, ROOM_W / 2, ROOM_H / 2)}
-                className={`flex-row items-center gap-2 rounded-lg border px-2.5 h-9 ${
+                className={`flex-row items-center gap-2 rounded-lg border px-2.5 ${thumb ? "h-12" : "h-9"} ${
                   armed ? "border-brand-teal bg-brand-teal/15" : "border-hairline bg-surface active:bg-elevated"
                 }`}
               >
-                <View style={{ width: 12, height: 12, borderRadius: round ? 6 : 3, backgroundColor: item.fill }} />
-                <Text className={`font-sans-medium text-[12px] ${armed ? "text-brand-teal" : "text-brand-snow/80"}`}>
-                  {item.label}
-                </Text>
+                {thumb ? (
+                  <Image source={thumb} style={{ width: 34, height: 34 }} resizeMode="contain" />
+                ) : (
+                  <View style={{ width: 12, height: 12, borderRadius: round ? 6 : 3, backgroundColor: item.fill }} />
+                )}
+                <View>
+                  <Text className={`font-sans-medium text-[12px] ${armed ? "text-brand-teal" : "text-brand-snow/80"}`}>
+                    {item.label}
+                  </Text>
+                  {size && <Text className="font-sans text-[10px] text-brand-snow/45">{size}</Text>}
+                </View>
               </Pressable>
             );
           })}

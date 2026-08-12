@@ -1,5 +1,6 @@
-import { Pressable, View } from "react-native";
-import { BEHAVIORS, isNpcKind, paletteById, type Behavior, type PlacedObject } from "../rooms";
+import { Image, Pressable, View } from "react-native";
+import { thumbFor } from "../assets/thumbs";
+import { BEHAVIORS, CELL_METERS, isNpcKind, paletteById, type Behavior, type PlacedObject } from "../rooms";
 import { Button } from "../ui/Button";
 import { Body, Kicker, Muted } from "../ui/Text";
 
@@ -26,11 +27,21 @@ export function SelectionControls({
   const def = paletteById[object.kind];
   const isTarget = isNpcKind(object.kind);
   const current: Behavior = object.behavior ?? "random";
+  const thumb = thumbFor(object.kind);
+  const isFurniture = def?.section === "Furniture";
 
   return (
     <View className="gap-2">
       <View className="flex-row items-center gap-2 flex-wrap">
+        {/* The build-menu thumbnail — on a map of same-colored rects, this is
+            what says WHICH table is selected. */}
+        {thumb && <Image source={thumb} style={{ width: 30, height: 30 }} resizeMode="contain" />}
         <Body className="text-brand-snow mr-1">{def?.label ?? object.kind}</Body>
+        {isFurniture && (
+          <Muted className="text-[11px] mr-1">
+            {(object.w * CELL_METERS).toFixed(1)} × {(object.h * CELL_METERS).toFixed(1)} m
+          </Muted>
+        )}
         <Muted className="text-[11px] mr-1">{Math.round(object.rotation)}°</Muted>
         <Button label="Rotate 90°" variant="secondary" icon="refresh" onPress={() => onRotate(object.id)} className="h-9 px-3" />
         <Button label="Delete" variant="danger" icon="trash" onPress={() => onDelete(object.id)} className="h-9 px-3" />
