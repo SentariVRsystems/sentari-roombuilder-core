@@ -16,6 +16,7 @@ export function ReplayControls({
   t,
   duration,
   playing,
+  markerT,
   onToggle,
   onSeek,
   onRestart,
@@ -24,6 +25,9 @@ export function ReplayControls({
   t: number;
   duration: number;
   playing: boolean;
+  /** Optional moment to tick on the bar. The Room Builder marks where the house
+   *  went hot, so the walk to the start zone is separable from the run itself. */
+  markerT?: number;
   onToggle: () => void;
   onSeek: (t: number) => void;
   onRestart: () => void;
@@ -31,6 +35,8 @@ export function ReplayControls({
 }) {
   const barRef = useRef<RNView>(null);
   const pct = duration > 0 ? Math.min(1, t / duration) : 0;
+  const markerPct =
+    markerT !== undefined && duration > 0 ? Math.max(0, Math.min(1, markerT / duration)) : null;
 
   // Measure the bar in the window and use pageX — RN Web's Pressable onPress
   // doesn't reliably populate nativeEvent.locationX.
@@ -71,6 +77,13 @@ export function ReplayControls({
         >
           <View style={{ height: 5, borderRadius: 3, backgroundColor: colors.elevated, overflow: "hidden" }}>
             <View style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct * 100}%`, backgroundColor: colors.teal }} />
+            {/* Drawn over the fill so it stays findable once the playhead has
+                passed it — that's exactly when you want to scrub back to it. */}
+            {markerPct !== null && (
+              <View
+                style={{ position: "absolute", left: `${markerPct * 100}%`, top: 0, bottom: 0, width: 2, marginLeft: -1, backgroundColor: colors.snow }}
+              />
+            )}
           </View>
         </Pressable>
 

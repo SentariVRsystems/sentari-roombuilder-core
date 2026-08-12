@@ -69,7 +69,17 @@ export type Replay = {
   duration: number; // ms
   t: number; // playhead, ms
   playing: boolean;
+  /** Playhead offset (ms) at which the house went hot — the moment the headset
+   *  reported `running`, which is when its countdown cue starts. Undefined on
+   *  runs recorded before this was captured. */
+  hotT?: number;
 };
+
+/** Seconds the headset counts down after reporting `running` before the house is
+ *  actually hot. Mirrors BuildAndBreachCanvasController.CountdownSeconds — the
+ *  count itself never goes on the wire, only the moment it starts, so anything
+ *  displaying the number is reproducing it from here. Keep the two in sync. */
+export const HOT_COUNTDOWN_SECONDS = 5;
 
 // Every recorded NPC's position at playhead `t` (ms), keyed by object id — feeds
 // the same npc-override the live view uses, so replay shows targets moving too.
