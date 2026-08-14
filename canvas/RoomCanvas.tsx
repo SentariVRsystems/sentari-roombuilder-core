@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { GestureResponderEvent, LayoutChangeEvent, PanResponder, Pressable, Text, View } from "react-native";
 import type { View as RNView } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import Svg, { Circle, G, Line, Path, Rect } from "react-native-svg";
 import { CELL, CELL_METERS, isNpcKind, paletteById, toSvgX, toSvgY, type PlacedObject, type Room } from "../rooms";
 import { colors } from "../theme";
@@ -55,8 +56,9 @@ type Props = {
 
 // The top-down room stage. The SVG layer is purely visual; interaction rides
 // on absolutely-positioned View overlays (PanResponder on SVG nodes is flaky on
-// web). Object overlays handle tap-to-select, drag-to-move, and Shift+drag to
-// rotate freely. In wall mode, clicks on the ground place a two-point wall.
+// web). Object overlays handle tap-to-select, drag-to-move, and rotation —
+// via the ⟳ knob on the selected object or Shift+drag anywhere on it. In wall
+// mode, clicks on the ground place a two-point wall.
 export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngles, bounds, mode = "edit", wallStart, onSelect, onMove, onRotate, onCanvasPoint, onShiftAll, readOnly }: Props) {
   const [size, setSize] = useState({ w: 0, h: 0 });
   // Canvas pan, in cells. The whole stage (grid, room, bounds, tracking) drags
@@ -335,6 +337,42 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
     mode === "wall" ? room.objects.filter((o) => paletteById[o.kind]?.place !== "wall") : room.objects;
   const wallCursor = mode === "wall";
 
+  // ── Rotation handle for the selected object ──
+  // Shift+drag has always rotated, but a gesture with no on-screen trace is a
+  // control nobody finds. The knob is the visible version of the same thing: it
+  // rides just outside the object at its facing angle, and dragging it feeds
+  // the exact rotate-drag path Shift+drag uses, so the two can never disagree.
+  // Sitting AT the facing angle also means grabbing it never jumps the value —
+  // the pointer starts where the atan2 below already expects it.
+  const KNOB = 24;
+  const selObj = editable && mode === "edit" && selectedObjectId ? room.objects.find((o) => o.id === selectedObjectId) : undefined;
+  const rotating = !!(drag && selObj && drag.id === selObj.id && drag.mode === "rotate");
+  let knob: { left: number; top: number; stem: { x1: number; y1: number; x2: number; y2: number } } | null = null;
+  if (selObj && pxPerCell > 0) {
+    const d = displayObject(selObj);
+    const rad = (d.rotation * Math.PI) / 180;
+    const wpx = d.w * pxPerCell;
+    const hpx = d.h * pxPerCell;
+    const bw = Math.abs(wpx * Math.cos(rad)) + Math.abs(hpx * Math.sin(rad));
+    const bh = Math.abs(wpx * Math.sin(rad)) + Math.abs(hpx * Math.cos(rad));
+    // Clear of the drag hitbox (which is at least 30px), so grabbing the knob
+    // can't start a move instead. The overlay renders after the hitboxes
+    // anyway, so on overlap the knob still wins.
+    const r = Math.max(bw, bh, 30) / 2 + 14;
+    const cx = (d.x + pan.x) * pxPerCell;
+    const cy = (d.y + pan.y) * pxPerCell;
+    knob = {
+      left: cx + r * Math.cos(rad) - KNOB / 2,
+      top: cy + r * Math.sin(rad) - KNOB / 2,
+      stem: {
+        x1: toSvgX(d.x),
+        y1: toSvgY(d.y),
+        x2: toSvgX(d.x + (r / pxPerCell) * Math.cos(rad)),
+        y2: toSvgY(d.y + (r / pxPerCell) * Math.sin(rad)),
+      },
+    };
+  }
+
   return (
     <View
       ref={containerRef}
@@ -390,6 +428,20 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
             />
           );
         })}
+        {/* Stem from the selected object's centre out to the rotate knob — the
+            line is what ties the floating knob to the thing it turns. */}
+        {knob && (
+          <Line
+            x1={knob.stem.x1}
+            y1={knob.stem.y1}
+            x2={knob.stem.x2}
+            y2={knob.stem.y2}
+            stroke={colors.teal}
+            strokeWidth={1.2 / zoom}
+            strokeDasharray={`${3 / zoom} ${3 / zoom}`}
+            opacity={rotating ? 0.9 : 0.55}
+          />
+        )}
         {wallStart && (
           <Circle cx={toSvgX(wallStart.x)} cy={toSvgY(wallStart.y)} r={5} fill={colors.teal} stroke={colors.canvas} strokeWidth={1.5} />
         )}
@@ -417,6 +469,18 @@ export function RoomCanvas({ room, selectedObjectId, live, npcOverride, doorAngl
                 onEnd={(g) => onDragEnd(o.id, g)}
               />
             ))}
+          {knob && selObj && (
+            <RotateHandle
+              left={knob.left}
+              top={knob.top}
+              size={KNOB}
+              rotating={rotating}
+              degrees={rotating && drag ? Math.round(((drag.rot % 360) + 360) % 360) : null}
+              onGrant={() => onGrant(selObj.id, true)}
+              onMove={(g) => onDragMove(selObj.id, g)}
+              onEnd={(g) => onDragEnd(selObj.id, g)}
+            />
+          )}
         </View>
       )}
 
@@ -473,6 +537,86 @@ function ZoomBtn({ label, onPress, disabled }: { label: string; onPress: () => v
     >
       <Text style={{ color: colors.snow, fontSize: 13, fontFamily: "JetBrainsMono_500Medium", lineHeight: 15 }}>{label}</Text>
     </Pressable>
+  );
+}
+
+// The visible rotate control for the selected object. A PanResponder knob that
+// grants the object's rotate-drag (shiftKey forced true upstream), so the knob
+// and Shift+drag share one code path. It keeps responding as it moves under the
+// pointer — the responder follows the gesture, not the view's position.
+function RotateHandle({
+  left,
+  top,
+  size,
+  rotating,
+  degrees,
+  onGrant,
+  onMove,
+  onEnd,
+}: {
+  left: number;
+  top: number;
+  size: number;
+  rotating: boolean;
+  degrees: number | null; // live readout while dragging; null when idle
+  onGrant: () => void;
+  onMove: (g: { dx: number; dy: number; moveX: number; moveY: number }) => void;
+  onEnd: (g: { dx: number; dy: number }) => void;
+}) {
+  const cb = useRef({ onGrant, onMove, onEnd });
+  cb.current = { onGrant, onMove, onEnd };
+
+  const responder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => cb.current.onGrant(),
+        onPanResponderMove: (_, g) => cb.current.onMove({ dx: g.dx, dy: g.dy, moveX: g.moveX, moveY: g.moveY }),
+        onPanResponderRelease: (_, g) => cb.current.onEnd({ dx: g.dx, dy: g.dy }),
+        onPanResponderTerminate: (_, g) => cb.current.onEnd({ dx: g.dx, dy: g.dy }),
+      }),
+    []
+  );
+
+  return (
+    <View pointerEvents="box-none" style={{ position: "absolute", left, top, alignItems: "center" }}>
+      {/* Live degrees while dragging — the SELECTED card only updates on commit. */}
+      {degrees !== null && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: -22,
+            backgroundColor: "rgba(12,18,25,0.9)",
+            borderRadius: 4,
+            paddingHorizontal: 5,
+            paddingVertical: 1,
+          }}
+        >
+          <Text style={{ color: colors.teal, fontSize: 10, fontFamily: "JetBrainsMono_500Medium" }}>{degrees}°</Text>
+        </View>
+      )}
+      <View
+        {...responder.panHandlers}
+        style={[
+          {
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: rotating ? colors.teal : "rgba(12,18,25,0.92)",
+            borderWidth: 1.5,
+            borderColor: colors.teal,
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "grab",
+          } as any,
+          { userSelect: "none" } as any,
+        ]}
+      >
+        <Ionicons name="refresh" size={13} color={rotating ? "#0E1726" : colors.teal} />
+      </View>
+    </View>
   );
 }
 

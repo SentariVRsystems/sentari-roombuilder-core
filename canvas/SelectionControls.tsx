@@ -6,23 +6,26 @@ import { Body, Kicker, Muted } from "../ui/Text";
 
 // Controls for the currently-selected object: rotate/delete, plus — for a
 // target — a behavior picker that mirrors Build & Breach's in-game
-// NPCBehaviorToggle. Free rotation is Shift+drag on the object (see RoomCanvas).
+// NPCBehaviorToggle. Free rotation lives on the canvas: the ⟳ knob on the
+// selected object, or Shift+drag (see RoomCanvas).
 //
 // `onSetBehavior` is optional: an app that hasn't wired target dispositions
 // simply omits it and the picker doesn't render.
 export function SelectionControls({
   object,
-  onRotate,
   onDelete,
   onSetBehavior,
 }: {
   object: PlacedObject | null;
-  onRotate: (id: string) => void;
+  // Rotation deliberately has no button here anymore — the canvas knob (and
+  // Shift+drag) replaced the old Rotate 90° step. Accepted-and-ignored so
+  // callers that still pass it keep compiling.
+  onRotate?: (id: string) => void;
   onDelete: (id: string) => void;
   onSetBehavior?: (id: string, behavior: Behavior) => void;
 }) {
   if (!object) {
-    return <Muted className="text-[12px]">Tap to select · drag to move · Shift+drag to rotate freely.</Muted>;
+    return <Muted className="text-[12px]">Tap to select · drag to move · drag the ⟳ knob to rotate freely.</Muted>;
   }
   const def = paletteById[object.kind];
   const isTarget = isNpcKind(object.kind);
@@ -43,7 +46,6 @@ export function SelectionControls({
           </Muted>
         )}
         <Muted className="text-[11px] mr-1">{Math.round(object.rotation)}°</Muted>
-        <Button label="Rotate 90°" variant="secondary" icon="refresh" onPress={() => onRotate(object.id)} className="h-9 px-3" />
         <Button label="Delete" variant="danger" icon="trash" onPress={() => onDelete(object.id)} className="h-9 px-3" />
       </View>
 
