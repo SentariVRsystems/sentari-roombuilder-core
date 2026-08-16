@@ -36,9 +36,14 @@ export function Button({ label, variant = "secondary", icon, className, full, ..
       {...p}
     >
       {icon ? <Ionicons name={icon} size={16} color={s.color} /> : null}
-      <Text className="font-sans-semibold text-[14px]" style={{ color: s.color }}>
-        {label}
-      </Text>
+      {/* Empty label = icon-only button (pass a square className and an
+          accessibilityLabel); skipping the Text keeps gap-2 from adding a
+          phantom gap after the icon. */}
+      {label ? (
+        <Text className="font-sans-semibold text-[14px]" style={{ color: s.color }}>
+          {label}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }

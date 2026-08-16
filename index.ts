@@ -10,6 +10,7 @@
 // resolve with Metro's plain file resolution, with no package `exports` map.
 
 export * from "./rooms";
+export * from "./generateRoom";
 export * from "./tracking";
 export * from "./protocol";
 export * from "./theme";

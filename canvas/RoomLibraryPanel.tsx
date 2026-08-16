@@ -18,6 +18,7 @@ export function RoomLibraryPanel({
   fill = false,
   onSelect,
   onNew,
+  onGenerate,
   onRename,
   onDuplicate,
   onDelete,
@@ -32,6 +33,8 @@ export function RoomLibraryPanel({
   cloud: boolean;
   onSelect: (id: string) => void;
   onNew: () => void;
+  /** When provided, a "Random" button generates a room procedurally. */
+  onGenerate?: () => void;
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
@@ -60,8 +63,11 @@ export function RoomLibraryPanel({
 
   return (
     <Card className="min-w-[240px]" style={fill ? { flex: 1 } : undefined}>
-      <View className="flex-row items-center justify-between mb-3">
-        <View className="flex-row items-center gap-2">
+      {/* The kicker gets its own line; the action buttons sit on a second row
+          below it. The column is ~230px inside the card — a kicker plus two
+          labeled buttons never fit one row. */}
+      <View className="mb-3">
+        <View className="flex-row items-center gap-2 mb-2.5">
           <Kicker>ROOM LIBRARY</Kicker>
           <Ionicons
             name={cloud ? "cloud-done-outline" : "cloud-offline-outline"}
@@ -69,7 +75,18 @@ export function RoomLibraryPanel({
             color={cloud ? colors.teal : "rgba(247,249,251,0.35)"}
           />
         </View>
-        <Button label="New" variant="secondary" icon="add" onPress={() => onNew()} className="h-9 px-3" />
+        <View className="flex-row gap-2">
+          {onGenerate && (
+            <Button
+              label="Random"
+              variant="secondary"
+              icon="shuffle"
+              onPress={() => onGenerate()}
+              className="h-9 px-3 flex-1"
+            />
+          )}
+          <Button label="New" variant="secondary" icon="add" onPress={() => onNew()} className="h-9 px-3 flex-1" />
+        </View>
       </View>
 
       {!fill ? (
