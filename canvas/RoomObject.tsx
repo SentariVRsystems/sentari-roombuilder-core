@@ -43,7 +43,7 @@ export function RoomObject({
   const npcR = Math.min(w, h) / 2;
   const shape =
     def?.render === "start" ? (
-      // The trainee START ZONE — a blue floor rectangle (3 ft × 5 ft) the headset
+      // The trainee START ZONE — a blue floor rectangle (START_ZONE_FT) the headset
       // shows on the ground; the "house is hot" countdown begins once every
       // player stands inside it. An up-chevron marks the facing direction (into
       // the room); the group's rotate() turns the whole zone with the object.

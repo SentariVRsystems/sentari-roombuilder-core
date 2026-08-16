@@ -27,14 +27,16 @@ export const metersToCells = (m: number) => Math.round(m / CELL_METERS);
 export const clampRoomCells = (c: number) =>
   Math.max(MIN_ROOM_CELLS, Math.min(MAX_ROOM_CELLS, Math.round(c)));
 
-// The trainee START ZONE is spec'd in FEET — a 5 ft × 3 ft floor rectangle
-// (5 ft wide along the line the squad forms on, 3 ft deep). The facing chevron
+// The trainee START ZONE is spec'd in FEET — a 2.5 ft × 1.5 ft floor rectangle
+// (wide along the line the squad forms on, shallow front-to-back; halved from
+// the original 5 × 3 so it fits in the yard strip OUTSIDE a generated house
+// even when the room is sized to a small play space). The facing chevron
 // points across the short axis toward the long front edge = the direction they
 // advance. The headset shows it as a blue rectangle on the ground and begins
 // the "house is hot" countdown once every player is standing inside it.
 export const FOOT_METERS = 0.3048; // meters per foot
 export const feetToCells = (ft: number) => (ft * FOOT_METERS) / CELL_METERS;
-export const START_ZONE_FT = { w: 5, h: 3 }; // width × depth, in feet
+export const START_ZONE_FT = { w: 2.5, h: 1.5 }; // width × depth, in feet
 
 export const toSvgX = (x: number) => x * CELL;
 export const toSvgY = (y: number) => y * CELL;
@@ -249,7 +251,9 @@ export const FURNITURE_TYPES: string[] = FURNITURE.map((c) => c.category);
 export const PALETTE: PaletteDef[] = [
   ...WALL_MATERIALS.map<PaletteDef>((m) => ({
     kind: m.id, label: m.id, section: "Walls", category: "Walls", place: "wall", render: "rect",
-    defaultW: 4, defaultH: 0.375, fill: m.fill, stroke: "rgba(247,249,251,0.35)",
+    // Thickness tracks the game's wall prefabs, which were slimmed to half
+    // their original depth — keep in sync if they change again.
+    defaultW: 4, defaultH: 0.1875, fill: m.fill, stroke: "rgba(247,249,251,0.35)",
   })),
   ...DOORS.map<PaletteDef>((d) => ({
     kind: d.id, label: d.id, section: "Doors", category: "Doors", place: "point", render: "rect",
@@ -314,12 +318,17 @@ export function sanitizeRoom(id: string, data: unknown): Room | null {
       // Furniture is always built at the prefab's native size (the headset
       // ignores stored w/h for it), so stale footprints from before the
       // catalog carried real sizes are corrected on load. Walls keep their
-      // drawn length; everything else keeps what was stored.
+      // drawn LENGTH but take the catalog's thickness — the game's wall
+      // prefabs slimmed down, and rooms saved before that would draw (and
+      // cut door gaps) at the old depth forever. Everything else keeps what
+      // was stored.
       const def = paletteById[o.kind];
       const native = def?.section === "Furniture";
+      const wall = def?.section === "Walls";
       objects.push({
         id: o.id, kind: o.kind, x: o.x, y: o.y, rotation: o.rotation,
-        w: native ? def.defaultW : o.w, h: native ? def.defaultH : o.h,
+        w: native ? def.defaultW : o.w,
+        h: native || wall ? def!.defaultH : o.h,
         ...(isBehavior(o.behavior) ? { behavior: o.behavior } : {}),
       });
     }
@@ -566,10 +575,14 @@ export function wallsWithDoorGaps(objects: PlacedObject[]): PlacedObject[] {
   // outside-to-outside) regardless of the door's cell footprint. The gap has to
   // clear the REAL frame: cut it narrower and invisible wall stubs poke into
   // the opening and eat shots fired near the frame posts.
-  // The prefab frame measures 1.05m and its leaf 1.00m. Cut slightly NARROWER
-  // than the frame so the wall ends tuck behind the frame posts (no visible
-  // crack) — but never narrower than the leaf, or invisible wall stubs poke
-  // into the opening and eat shots.
+  // The prefab frame measures 1.05m and its leaf 1.00m. Cut 1.02m — between
+  // the two: narrower than the frame so wall ends tuck behind the posts (no
+  // visible crack), wider than the leaf so the wall never intrudes into the
+  // swing. This is a CONTRACT with the headset: RoomBuilderLoader's
+  // FreeDoorLeavesFromWalls comment records that cutting narrower than the
+  // frame is what caused doors jamming at 90°. (A brief 1.00m experiment here
+  // chased a "gap at the frame" report that turned out to be the headset
+  // rendering walls short/floating — cut width was never the culprit.)
   const DOOR_FRAME_CELLS = 1.02 / CELL_METERS;
   const out: PlacedObject[] = [];
 
@@ -646,11 +659,11 @@ export function seedRooms(): Room[] {
     };
   };
   const shooterHouse: PlacedObject[] = [
-    obj("Concrete", 12, 1, 0, 20, 0.5),
-    obj("Concrete", 12, 15, 0, 20, 0.5),
-    obj("Concrete", 2, 8, 90, 14, 0.5),
-    obj("Concrete", 22, 8, 90, 14, 0.5),
-    obj("Drywall", 12, 8, 90, 9, 0.5),
+    obj("Concrete", 12, 1, 0, 20),
+    obj("Concrete", 12, 15, 0, 20),
+    obj("Concrete", 2, 8, 90, 14),
+    obj("Concrete", 22, 8, 90, 14),
+    obj("Drywall", 12, 8, 90, 9),
     obj("Brown Door", 12, 11.5, 90),
     obj("Table01", 6, 5),
     obj("Sofa01", 17, 10),
@@ -660,8 +673,8 @@ export function seedRooms(): Room[] {
     obj("start", 12, 14),
   ];
   const openBay: PlacedObject[] = [
-    obj("Cinderblock", 12, 1, 0, 20, 0.5),
-    obj("Cinderblock", 12, 15, 0, 20, 0.5),
+    obj("Cinderblock", 12, 1, 0, 20),
+    obj("Cinderblock", 12, 15, 0, 20),
     obj("Table02", 8, 8),
     obj("Closet01", 16, 8),
     obj("start", 12, 13),
