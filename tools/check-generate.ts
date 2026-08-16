@@ -22,6 +22,8 @@ const fail = (i: number, msg: string) => {
 const N = 5000;
 const stats = { objects: 0, doors: 0, furniture: 0, npcs: 0 };
 const npcKindsSeen = new Set<string>();
+const behaviorsSeen = new Set<string>();
+const hostileModels = new Set<string>();
 let roomsWithNonHostile = 0;
 
 for (let i = 0; i < N; i++) {
@@ -81,10 +83,29 @@ for (let i = 0; i < N; i++) {
   const doors = room.objects.filter((o) => isDoorKind(o.kind));
   const gapped = wallsWithDoorGaps(room.objects).filter((o) => isWallKind(o.kind));
   // Each door removes ~2 cells of wall; total wall length must shrink by
-  // roughly 2 cells per door (allow slack for merged/edge gaps).
+  // roughly 1.92 cells (the frame cut) per door — slack for merged/edge gaps.
   const totalLen = (ws: PlacedObject[]) => ws.reduce((s, w) => s + w.w, 0);
   const cut = totalLen(walls) - totalLen(gapped);
-  if (cut < doors.length * 1.9) fail(i, `doors not cutting walls: ${doors.length} doors, only ${cut.toFixed(2)} cells cut`);
+  if (cut < doors.length * 1.8) fail(i, `doors not cutting walls: ${doors.length} doors, only ${cut.toFixed(2)} cells cut`);
+
+  // Every door sits EXACTLY on its wall's centerline (≤ 0.05 cells perp).
+  // The gap cutter tolerates ~0.65, but the headset builds the frame at the
+  // DOOR's position — even a 0.1-cell offset leaves a finger-width slit
+  // between the frame and the wall face.
+  for (const d of doors) {
+    const dHoriz = Math.abs(((d.rotation % 180) + 180) % 180) < 45 || Math.abs(((d.rotation % 180) + 180) % 180) > 135;
+    const aligned = walls.some((w) => {
+      const we = objectExtent(w);
+      const wHoriz = we.w >= we.h;
+      if (wHoriz !== dHoriz) return false;
+      const perp = wHoriz ? Math.abs(d.y - w.y) : Math.abs(d.x - w.x);
+      const t = wHoriz ? d.x : d.y;
+      const lo = wHoriz ? w.x - we.w : w.y - we.h;
+      const hi = wHoriz ? w.x + we.w : w.y + we.h;
+      return perp <= 0.05 && t > lo - d.w / 2 && t < hi + d.w / 2;
+    });
+    if (!aligned) fail(i, `door ${d.kind}@(${d.x},${d.y}) rot ${d.rotation} off its wall centerline`);
+  }
 
   // No two non-wall, non-door solids overlap (furniture, NPCs, start).
   const solids = room.objects.filter((o) => {
@@ -211,15 +232,16 @@ for (let i = 0; i < N; i++) {
     }
   }
 
+  let hasNonHostile = false;
   for (const o of room.objects) {
     if (paletteById[o.kind]?.render === "npc") {
       npcKindsSeen.add(o.kind);
-      if (o.behavior && o.behavior !== "hostile") {
-        roomsWithNonHostile++;
-        break;
-      }
+      if (o.behavior) behaviorsSeen.add(o.behavior);
+      if (o.behavior === "hostile") hostileModels.add(o.kind);
+      else if (o.behavior) hasNonHostile = true;
     }
   }
+  if (hasNonHostile) roomsWithNonHostile++;
 
   stats.objects += room.objects.length;
   stats.doors += doors.length;
@@ -242,6 +264,17 @@ if (roomsWithNonHostile / N < 0.5) {
 }
 if (npcKindsSeen.size < 6) {
   console.error(`FAILED: only ${npcKindsSeen.size} NPC kinds across the batch`);
+  failures++;
+}
+// Model and behavior are decoupled: every disposition appears, and "hostile"
+// spreads across many models instead of living on one soldier.
+console.log(`behaviors seen: ${[...behaviorsSeen].sort().join(", ")}; hostile worn by ${hostileModels.size} models`);
+if (behaviorsSeen.size < 5) {
+  console.error(`FAILED: only ${behaviorsSeen.size} behaviors across the batch`);
+  failures++;
+}
+if (hostileModels.size < 5) {
+  console.error(`FAILED: hostile behavior appears on only ${hostileModels.size} models`);
   failures++;
 }
 if (failures) {

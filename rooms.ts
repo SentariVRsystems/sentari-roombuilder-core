@@ -251,9 +251,10 @@ export const FURNITURE_TYPES: string[] = FURNITURE.map((c) => c.category);
 export const PALETTE: PaletteDef[] = [
   ...WALL_MATERIALS.map<PaletteDef>((m) => ({
     kind: m.id, label: m.id, section: "Walls", category: "Walls", place: "wall", render: "rect",
-    // Thickness tracks the game's wall prefabs, which were slimmed to half
-    // their original depth — keep in sync if they change again.
-    defaultW: 4, defaultH: 0.1875, fill: m.fill, stroke: "rgba(247,249,251,0.35)",
+    // Thickness tracks the game's wall prefabs: measured 0.05 m from the
+    // slimmed prefab colliders (tools/measure-doors) — keep in sync if they
+    // change again.
+    defaultW: 4, defaultH: 0.1, fill: m.fill, stroke: "rgba(247,249,251,0.35)",
   })),
   ...DOORS.map<PaletteDef>((d) => ({
     kind: d.id, label: d.id, section: "Doors", category: "Doors", place: "point", render: "rect",
@@ -571,19 +572,21 @@ export function wallsWithDoorGaps(objects: PlacedObject[]): PlacedObject[] {
 
   const MIN_SEG = 0.2; // cells — drop slivers left after cutting
   const MAX_ANGLE = 25; // door must be ~parallel to the wall to cut it
-  // The headset places door PREFABS at their native meter size (frame ~1.1m
-  // outside-to-outside) regardless of the door's cell footprint. The gap has to
-  // clear the REAL frame: cut it narrower and invisible wall stubs poke into
-  // the opening and eat shots fired near the frame posts.
-  // The prefab frame measures 1.05m and its leaf 1.00m. Cut 1.02m — between
-  // the two: narrower than the frame so wall ends tuck behind the posts (no
-  // visible crack), wider than the leaf so the wall never intrudes into the
-  // swing. This is a CONTRACT with the headset: RoomBuilderLoader's
-  // FreeDoorLeavesFromWalls comment records that cutting narrower than the
-  // frame is what caused doors jamming at 90°. (A brief 1.00m experiment here
-  // chased a "gap at the frame" report that turned out to be the headset
-  // rendering walls short/floating — cut width was never the culprit.)
-  const DOOR_FRAME_CELLS = 1.02 / CELL_METERS;
+  // The headset places door PREFABS at their native meter size regardless of
+  // the door's cell footprint, so the gap is sized to the MEASURED prefab
+  // (tools/measure-doors against the collider YAML, 2026-08):
+  //   frame outer  1.023 m, symmetric about the pivot
+  //   leaf         0.930 m  (so each post is ~46 mm wide)
+  // Cut 0.96 m: the wall ends tuck ~32 mm behind each post — deep enough that
+  // float/mesh imprecision can never open a visible slit — while the 0.93 m
+  // leaf still clears the wall by ~15 mm through its whole swing. The wall
+  // stub behind a post is co-located with the solid post, so shots landing
+  // there read correctly. Earlier values (1.05 m "measured" frame, 1.02 m
+  // cut) left only 1.5 mm of overlap, which is exactly the finger-width slit
+  // players kept finding. Bounds: never cut narrower than the leaf (jams the
+  // swing — RoomBuilderLoader's FreeDoorLeavesFromWalls history), never wider
+  // than the frame (visible cracks).
+  const DOOR_FRAME_CELLS = 0.96 / CELL_METERS;
   const out: PlacedObject[] = [];
 
   for (const o of objects) {
@@ -607,7 +610,10 @@ export function wallsWithDoorGaps(objects: PlacedObject[]): PlacedObject[] {
       const perp = Math.abs(px * -uy + py * ux); // perpendicular distance to the line
       if (perp > halfThick) continue; // door isn't sitting on this wall
       if (t < -d.w / 2 || t > len + d.w / 2) continue; // door is past the wall's span
-      const half = Math.max(d.w / 2, DOOR_FRAME_CELLS / 2);
+      // The FRAME footprint alone decides the gap — the door's map footprint
+      // (d.w, 2 cells for display) is wider than the real prefab, and cutting
+      // to it is what erased the wall-behind-post overlap.
+      const half = DOOR_FRAME_CELLS / 2;
       gaps.push([t - half, t + half]);
     }
     if (!gaps.length) {

@@ -168,8 +168,12 @@ const kindsIn = (category: string): string[] =>
 
 // Character NPCs only — never the generic "Hostile"/"Non-Hostile" target
 // dummies. A generated house should read as inhabited, not as a range.
-const HOSTILE_KINDS = ["Soldier", "Soldier (Gas)"];
-const CIVILIAN_KINDS = ["Bobby", "Freddy", "Ray", "Remy", "Susan", "Tabby", "Tom"];
+// MODEL and BEHAVIOR are fully decoupled: any character can be hostile and
+// any can be a bystander — reading intent, not outfits, is the drill.
+const NPC_KINDS = ["Soldier", "Soldier (Gas)", "Bobby", "Freddy", "Ray", "Remy", "Susan", "Tabby", "Tom"];
+// Extras draw from this weighted pool: mostly non-hostile, so a house reads
+// as inhabited rather than as a range, but every disposition shows up.
+const EXTRA_BEHAVIORS: Behavior[] = ["compliant", "compliant", "afraid", "compToHostile", "random", "hostile"];
 
 // ── the generator ───────────────────────────────────────────────
 export function generateRoom(opts: GenerateRoomOptions = {}): Room {
@@ -361,7 +365,7 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
     );
     const t = pickDoorT(sp.lo, sp.hi, []);
     const [dx, dy] = ct.axis === "x" ? [ct.c, t] : [t, ct.c];
-    doors.push({ ...makeObject(pick(doorKinds), dx, dy, W, H), rotation: ct.axis === "x" ? 90 : 0 });
+    doors.push({ ...makeObject(pick(doorKinds), dx, dy, W, H), x: dx, y: dy, rotation: ct.axis === "x" ? 90 : 0 });
     addDoorClearance(dx, dy);
   }
 
@@ -372,7 +376,7 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
       .map((o) => o.cut);
     const t = pickDoorT(s.lo, s.hi, junctions);
     const [dx, dy] = s.axis === "x" ? [s.cut, t] : [t, s.cut];
-    doors.push({ ...makeObject(pick(doorKinds), dx, dy, W, H), rotation: s.axis === "x" ? 90 : 0 });
+    doors.push({ ...makeObject(pick(doorKinds), dx, dy, W, H), x: dx, y: dy, rotation: s.axis === "x" ? 90 : 0 });
     addDoorClearance(dx, dy);
   }
 
@@ -387,7 +391,10 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
     .filter((s) => s.axis === "x" && Math.abs(s.hi - entryY1) < eps && s.cut > entryLeaf.x0 && s.cut < entryLeaf.x1)
     .map((s) => s.cut);
   const entryX = pickDoorT(entryLeaf.x0, entryLeaf.x1, southJunctions);
-  doors.push({ ...makeObject(pick(doorKinds), entryX, entryY1, W, H), rotation: 0 });
+  // x/y spread-override: the entry wall sits on the off-grid yard line, and
+  // makeObject's half-cell snap pushed the frame 5 cm off the wall plane —
+  // the finger-width slit beside generated doors.
+  doors.push({ ...makeObject(pick(doorKinds), entryX, entryY1, W, H), x: entryX, y: entryY1, rotation: 0 });
   addDoorClearance(entryX, entryY1);
 
   const startDef = paletteById.start;
@@ -488,9 +495,8 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
   // floor half-cell by half-cell for a genuinely free spot.
   const hostileLeaves = leaves.length > 1 ? leaves.filter((l) => l !== entryLeaf) : leaves;
   const byDistance = [...hostileLeaves].sort((a, b) => distFromStart(b) - distFromStart(a));
-  // Usually a soldier model, but ~30% of houses hide the hostile in a
-  // civilian model — reading INTENT, not outfits, is the drill.
-  const hostileKind = Math.random() < 0.3 ? pick(CIVILIAN_KINDS) : pick(HOSTILE_KINDS);
+  // Any model can be the guaranteed hostile.
+  const hostileKind = pick(NPC_KINDS);
   if (!byDistance.some((l) => tryNpc(l, hostileKind, "hostile", 20))) {
     // Progressively relax: entry leaf included, then the stay-away-from-start
     // rule waived, then doorway clearances waived (a hostile standing in a
@@ -675,12 +681,11 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
   };
   const extras = randInt(1, 3);
   for (let i = 0; i < extras; i++) {
-    // The first extra leans hard toward a civilian; later ones are a coin flip.
-    if (Math.random() < (i === 0 ? 0.75 : 0.5)) {
-      placeExtra(pick(CIVILIAN_KINDS), pick(["compliant", "compliant", "afraid", "compToHostile"]));
-    } else {
-      placeExtra(pick(HOSTILE_KINDS), pick(["hostile", "random"]));
-    }
+    // Model and behavior roll independently: a soldier can surrender, a
+    // civilian can shoot. The first extra is always non-hostile so nearly
+    // every house has someone to NOT shoot.
+    const behavior = i === 0 ? pick<Behavior>(["compliant", "compliant", "afraid", "compToHostile"]) : pick(EXTRA_BEHAVIORS);
+    placeExtra(pick(NPC_KINDS), behavior);
   }
 
   const now = Date.now();
