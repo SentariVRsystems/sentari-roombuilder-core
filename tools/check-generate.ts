@@ -38,14 +38,17 @@ for (let i = 0; i < N; i++) {
         });
 
   // The start zone stages outside the house (below the southmost wall) in any
-  // room deep enough for the yard strip; shallower rooms start inside.
+  // playable box — the yard adapts down to 1.5 cells (2026-08-16); only
+  // degenerate boxes too shallow for both yard and house fall back inside.
   {
     const start = room.objects.find((o) => o.kind === "start");
     const walls0 = room.objects.filter((o) => isWallKind(o.kind));
     const southmost = Math.max(...walls0.map((w) => w.y + objectExtent(w).h));
     if (start) {
       const outside = start.y - objectExtent(start).h >= southmost;
-      const expectOutside = room.height - 1 - 2.1 - 1 >= 2.5;
+      const availCheck = room.height - 2; // default shell: y0 = 1, y1 = H - 1
+      const yardCheck = 1.5; // fixed minimal yard (2026-08-16)
+      const expectOutside = availCheck - yardCheck >= 2.5;
       // Exterior starts must stand off ≥ ~1 cell (0.5 m) from the wall face.
       if (outside && start.y - objectExtent(start).h - southmost < 0.95) {
         fail(i, `start only ${(start.y - objectExtent(start).h - southmost).toFixed(2)} cells off the south wall`);
@@ -125,8 +128,8 @@ for (let i = 0; i < N; i++) {
     }
   }
 
-  // At least one hostile to clear.
-  if (!room.objects.some((o) => o.behavior === "hostile")) fail(i, "no hostile");
+  // Cast is 0–4 by design (2026-08-16, no guaranteed hostile) — population
+  // is not an invariant, only placement is.
 
   // Cabinets/toilets/shelves and the rest of the wall categories actually
   // back onto a wall.

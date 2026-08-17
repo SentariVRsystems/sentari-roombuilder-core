@@ -1,8 +1,15 @@
+// ⚠ MIRROR RULE: BuildAndBreach's in-game Fish Bowl carries a hand-port of this
+// generator (BuildAndBreachMain/Assets/Sentari/RandomHouseGenerator.cs), which
+// also inlines wallsWithDoorGaps and the FOOTPRINT_M data (as a fallback — the
+// headset measures real collider AABBs at runtime). When this file changes,
+// mirror the change there; the C# file carries the same note.
+//
 // Random room generator — one click in the library produces a plausible small
 // house: a walled shell split into 2–4 rooms, doors connecting every room, an
 // entry door on the south wall with the start zone staged OUTSIDE it (the
 // squad stacks up in the yard and breaches in), furniture dressed by room
-// type, and at least one hostile to clear. The output is a plain Room;
+// type, and a cast of 0–4 people of mixed disposition (no guaranteed
+// hostile — a no-threat house is a legal round). The output is a plain Room;
 // nothing downstream knows it was generated.
 //
 // Layout is a simple axis-aligned BSP: split the biggest leaf on its longer
@@ -110,7 +117,9 @@ const hitsAny = (b: Box, list: Box[], gap = 0.25) =>
 function pickDoorT(lo: number, hi: number, junctions: number[]): number {
   const min = lo + 1.5;
   const max = hi - 1.5;
-  const clearOf = (t: number) => junctions.every((j) => Math.abs(t - j) >= 1.6);
+  // 2.2, not 1.6 (2026-08-16): the farther a door sits from a T-junction, the
+  // more of the leaf's 90° swing stays clear of the perpendicular wall.
+  const clearOf = (t: number) => junctions.every((j) => Math.abs(t - j) >= 2.2);
   for (let i = 0; i < 20; i++) {
     const t = snap(randRange(min, max));
     if (clearOf(t)) return t;
@@ -171,21 +180,25 @@ const kindsIn = (category: string): string[] =>
 // MODEL and BEHAVIOR are fully decoupled: any character can be hostile and
 // any can be a bystander — reading intent, not outfits, is the drill.
 const NPC_KINDS = ["Soldier", "Soldier (Gas)", "Bobby", "Freddy", "Ray", "Remy", "Susan", "Tabby", "Tom"];
-// Extras draw from this weighted pool: mostly non-hostile, so a house reads
-// as inhabited rather than as a range, but every disposition shows up.
-const EXTRA_BEHAVIORS: Behavior[] = ["compliant", "compliant", "afraid", "compToHostile", "random", "hostile"];
+// Every person rolls from one weighted pool — no guaranteed hostile and no
+// guaranteed bystander (2026-08-16). Threats stay common, but a no-threat
+// house is a legal round.
+const CAST_BEHAVIORS: Behavior[] = ["hostile", "hostile", "compliant", "compliant", "afraid", "compToHostile", "random"];
 
 // ── the generator ───────────────────────────────────────────────
 export function generateRoom(opts: GenerateRoomOptions = {}): Room {
   const W = clampRoomCells(opts.width ?? randInt(8, 14) * 2);
   const H = clampRoomCells(opts.height ?? randInt(6, 10) * 2);
 
-  // One perimeter material per house reads as a building, not a patchwork.
-  // Interior walls each pick their own material — a whole WALL stays one
-  // material (no mid-wall patchwork), but room to room the partitions vary.
-  const shellKind = pick(["Brick", "Cinderblock", "Concrete", "Wood"]);
-  const interiorKinds = ["Brick", "Cinderblock", "Concrete", "Drywall", "Wood"];
+  // ONE wall material for the whole house (2026-08-16): shell, interior
+  // walls, stubs and party walls all match — a real building is built of one
+  // thing. Variety comes round to round, not wall to wall.
+  const houseWallKind = pick(["Brick", "Cinderblock", "Concrete", "Wood"]);
+  const shellKind = houseWallKind;
   const doorKinds = PALETTE.filter((p) => p.section === "Doors").map((p) => p.kind);
+  // The ENTRY is always a real swinging leaf — breaching an open hole reads
+  // wrong (2026-08-16). Interior doorways may still be open frames.
+  const swingDoorKinds = doorKinds.filter((k) => k !== "Open Door Frame");
 
   // The walkable region: one or more axis-aligned WINGS — adjoining
   // rectangles decomposed from a real play space by fitWingsForBounds, so an
@@ -231,12 +244,20 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
   // every run opens with a breach. Yard = 0.5 m standoff + the ~0.9-cell-deep
   // start zone + breathing room; wings too shallow for it fall back to
   // starting just inside the door instead.
-  const YARD = 2.1;
+  // The yard ADAPTS (2026-08-16): full 2.1 cells with depth to spare, down to
+  // 1.5 (wall + the ≥0.5 m standoff + zone) in a tight box, so the start
+  // stages outside in every playable size; the interior fallback survives
+  // only for degenerate boxes under ~2 m of depth.
   const entryCands = shells.filter((_, i) => !touchesContact(i, "S"));
   const entryShell = (entryCands.length ? entryCands : shells).reduce((a, b) =>
     a.x1 - a.x0 >= b.x1 - b.x0 ? a : b
   );
-  const exteriorStart = entryShell.y1 - YARD - entryShell.y0 >= 2.5; // keep ≥ 2.5 cells of house depth
+  const avail = entryShell.y1 - entryShell.y0;
+  // Fixed minimal yard (2026-08-16 "maximize the playspace"): wall + the
+  // ≥0.5 m standoff + zone and nothing more — a deeper yard is house depth
+  // thrown away.
+  const YARD = 1.5;
+  const exteriorStart = avail - YARD >= 2.5; // keep ≥ 2.5 cells of house depth
   if (exteriorStart) entryShell.y1 -= YARD;
   const entryY1 = entryShell.y1;
 
@@ -306,7 +327,9 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
   const leaves: Leaf[] = shells.map((s) => ({ ...s }));
   const splits: Split[] = [];
   // Every extra wing is already a room; the split budget scales with them.
-  const targetRooms = randInt(2, 4) + (shells.length - 1);
+  // 1–4 (2026-08-16): a single open room — a studio/bay with no interior
+  // walls — is a legitimate house too.
+  const targetRooms = randInt(1, 4) + (shells.length - 1);
   while (leaves.length < targetRooms) {
     const cands = leaves.filter(splittable);
     if (!cands.length) break;
@@ -328,7 +351,7 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
   // Interior walls: one full wall per split; wallsWithDoorGaps cuts the
   // opening at push time, so the wall is drawn continuous with the door on it.
   const interior = splits.map((s) => {
-    const kind = pick(interiorKinds);
+    const kind = houseWallKind;
     return s.axis === "x"
       ? makeWall(kind, s.cut, s.lo, s.cut, s.hi, W, H)
       : makeWall(kind, s.lo, s.cut, s.hi, s.cut, W, H);
@@ -341,7 +364,10 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
   // gap ≈ 1.5 from the door center — clear of the 1-cell-half opening, without
   // owning the whole floor of a shallow room the way 1.6 did.
   const clearances: Box[] = [];
-  const addDoorClearance = (dx: number, dy: number) => clearances.push(boxAt(dx, dy, 1.25, 1.25));
+  // 2.0, not 1.25 (2026-08-16): the 0.93 m leaf sweeps a ~1.86-cell quarter-
+  // circle from its hinge — nothing may park within 1 m of a door center or
+  // it can stop the leaf short of 90°.
+  const addDoorClearance = (dx: number, dy: number) => clearances.push(boxAt(dx, dy, 2.0, 2.0));
 
   // Party walls between wings, one doorway each — this is what keeps an
   // L-shaped house one house. Two exceptions go OPEN instead (no wall):
@@ -359,7 +385,7 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
       openContacts.push({ axis: ct.axis, c: ct.c, lo: sp.lo, hi: sp.hi });
       continue;
     }
-    const kind = pick(interiorKinds);
+    const kind = houseWallKind;
     perimeter.push(
       ct.axis === "x" ? makeWall(kind, ct.c, sp.lo, ct.c, sp.hi, W, H) : makeWall(kind, sp.lo, ct.c, sp.hi, ct.c, W, H)
     );
@@ -394,8 +420,12 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
   // x/y spread-override: the entry wall sits on the off-grid yard line, and
   // makeObject's half-cell snap pushed the frame 5 cm off the wall plane —
   // the finger-width slit beside generated doors.
-  doors.push({ ...makeObject(pick(doorKinds), entryX, entryY1, W, H), x: entryX, y: entryY1, rotation: 0 });
+  const entryDoor = { ...makeObject(pick(swingDoorKinds), entryX, entryY1, W, H), x: entryX, y: entryY1, rotation: 0 };
+  doors.push(entryDoor);
   addDoorClearance(entryX, entryY1);
+  // The breach doorway stays person-free even under the relaxed sweep tiers —
+  // its leaf must always swing (see sweepNpc).
+  const entryClearance = [boxAt(entryX, entryY1, 2.0, 2.0)];
 
   const startDef = paletteById.start;
   // Centered on the entry door, just OUTSIDE the south wall — or just inside
@@ -412,7 +442,9 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
   // makeObject's half-cell snap, which would eat a third of the standoff).
   // Inside (tiny-space fallback): tight to the wall as before — a room too
   // small for a yard can't afford a standoff either.
-  const startY = exteriorStart ? entryY1 + 1.55 : snapDown(entryY1 - 0.76);
+  // Zone center rides the yard depth: full standoff with a 2.1 yard,
+  // proportionally tighter (never past the yard strip) when it shrank.
+  const startY = exteriorStart ? entryY1 + Math.min(1.55, YARD + 0.04) : snapDown(entryY1 - 0.76);
   const start = { ...makeObject("start", startX, startY, W, H), x: startX, y: startY };
   const placed: Box[] = [boxAt(startX, startY, startDef.defaultW / 2, startDef.defaultH / 2)];
 
@@ -447,7 +479,7 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
         ? snapBetween(leaf.x0 + 1.5, leaf.x1 - 1.5)
         : snapBetween(leaf.y0 + 1.5, leaf.y1 - 1.5);
       if (t === null) break;
-      const stubKind = pick(interiorKinds);
+      const stubKind = houseWallKind;
       const wall =
         side === "N" ? makeWall(stubKind, t, leaf.y0, t, leaf.y0 + len, W, H)
         : side === "S" ? makeWall(stubKind, t, leaf.y1, t, leaf.y1 - len, W, H)
@@ -464,10 +496,10 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
     }
   }
 
-  // ── the guaranteed hostile ────────────────────────────────────
-  // Placed BEFORE furniture: in a tiny play space the free floor can be
-  // little more than the start zone, and a hostile to clear matters more than
-  // one more cabinet — furniture placed afterwards simply works around it.
+  // ── the cast ──────────────────────────────────────────────────
+  // People are placed BEFORE furniture: in a tiny play space the free floor
+  // can be little more than the start zone, and a person matters more than
+  // one more cabinet — furniture placed afterwards simply works around them.
   const npcs: PlacedObject[] = [];
   const tryNpc = (leaf: Leaf, kind: string, behavior: Behavior, attempts = 10): boolean => {
     for (let attempt = 0; attempt < attempts; attempt++) {
@@ -486,32 +518,17 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
     return false;
   };
 
-  const leafCenter = (l: Leaf) => ({ x: (l.x0 + l.x1) / 2, y: (l.y0 + l.y1) / 2 });
-  const distFromStart = (l: Leaf) => {
-    const c = leafCenter(l);
-    return Math.hypot(c.x - startX, c.y - startY);
-  };
-  // Random tries in the farthest leaves first; if those all fail, sweep the
-  // floor half-cell by half-cell for a genuinely free spot.
-  const hostileLeaves = leaves.length > 1 ? leaves.filter((l) => l !== entryLeaf) : leaves;
-  const byDistance = [...hostileLeaves].sort((a, b) => distFromStart(b) - distFromStart(a));
-  // Any model can be the guaranteed hostile.
-  const hostileKind = pick(NPC_KINDS);
-  if (!byDistance.some((l) => tryNpc(l, hostileKind, "hostile", 20))) {
-    // Progressively relax: entry leaf included, then the stay-away-from-start
-    // rule waived, then doorway clearances waived (a hostile standing in a
-    // doorway is a legal, mean room — a tiny house may have no other floor).
-    // The last tier also packs tight: exact 1×1 footprint (rotation 0 so the
-    // AABB isn't inflated), no breathing gap. Overlapping the start zone or a
-    // wall is never allowed.
-    const sweepLeaves = byDistance.includes(entryLeaf) ? byDistance : [...byDistance, entryLeaf];
-    const tiers = [
-      { nearStart: false, doorway: false, tight: false },
-      { nearStart: true, doorway: false, tight: false },
-      { nearStart: true, doorway: true, tight: false },
-      { nearStart: true, doorway: true, tight: true },
-    ];
-    outer: for (const relax of tiers) {
+  // Floor sweep with progressively relaxed rules — the fallback when the
+  // random rolls can't find space. Shared by the guaranteed hostile (all
+  // tiers, down to packed-tight) and the extras (never tight — an extra that
+  // truly doesn't fit is simply dropped). Tiers: entry leaf included, then
+  // the stay-away-from-start rule waived, then doorway clearances waived (a
+  // target in a doorway is a legal, mean room), then exact 1×1 footprint
+  // with no breathing gap. Overlapping the start zone or a wall is never
+  // allowed.
+  type SweepTier = { nearStart: boolean; doorway: boolean; tight: boolean };
+  const sweepNpc = (sweepLeaves: Leaf[], kind: string, behavior: Behavior, tiers: SweepTier[]): boolean => {
+    for (const relax of tiers) {
       for (const l of sweepLeaves) {
         for (let y = l.y0 + 1; y <= l.y1 - 1; y += 0.5) {
           for (let x = l.x0 + 1; x <= l.x1 - 1; x += 0.5) {
@@ -519,19 +536,23 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
             const box = boxAt(x, y, half, half);
             if (hitsAny(box, placed, relax.tight ? 0 : 0.25)) continue;
             if (!relax.doorway && hitsAny(box, clearances)) continue;
+            // The ENTRY doorway is never waived — the breach leaf must always swing free.
+            if (relax.doorway && hitsAny(box, entryClearance)) continue;
             if (!relax.nearStart && Math.hypot(x - startX, y - startY) < 2.5) continue;
             placed.push(box);
             npcs.push({
-              ...makeObject(hostileKind, x, y, W, H),
+              ...makeObject(kind, x, y, W, H),
               rotation: relax.tight ? 0 : randInt(0, 359),
-              behavior: "hostile",
+              behavior,
             });
-            break outer;
+            return true;
           }
         }
       }
     }
-  }
+    return false;
+  };
+
 
   // ── furniture ─────────────────────────────────────────────────
   // Wall-side rotation faces the piece into the room; the footprint math is
@@ -558,12 +579,16 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
         // Hug the chosen wall with a small clearance, random along it. Offsets
         // snap INTO the room (never onto the wall); the along-wall coordinate
         // must find a half-cell inside its range or the attempt fails.
-        // FLUSH against the wall: wall half-thickness (~0.1) + a 5 cm gap.
+        // BARELY off the wall: half the wall's 0.1-cell thickness + a hair of
+        // air (≈2.5 cm), so the piece's back face almost touches the wall face.
         // The perpendicular coordinate is exact — snapping it to the half-cell
         // grid pushed pieces up to 40 cm off the wall face, which reads as
         // "floating in the room" at VR scale. Only the along-wall coordinate
-        // keeps the grid.
-        const HUG = 0.2; // cells off the wall CENTERLINE (≈5 cm off its face)
+        // keeps the grid. (The headset honors this only because the loader
+        // re-centers each prefab's collider AABB on the wire point —
+        // RoomBuilderLoader.CenterFurnitureOnPoint; off-center pivots used to
+        // sink cabinets and closets deep into the wall.)
+        const HUG = 0.1; // cells off the wall CENTERLINE (≈2.5 cm off its face)
         const s = SIDES.find((sd) => sd.rot === rot)!.side;
         if (s === "N" || s === "S") {
           y = s === "N" ? leaf.y0 + e.h + HUG : leaf.y1 - e.h - HUG;
@@ -654,38 +679,59 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
     }
   };
 
-  // The entry leaf is always the living room; the rest draw types without
-  // replacement so a two-bathroom house doesn't happen.
-  const typePool = shuffle<RoomType>(["bedroom", "bathroom", "office", "living"]);
-  for (const leaf of leaves) {
-    const type: RoomType = leaf === entryLeaf ? "living" : typePool.pop() ?? "living";
-    for (const item of menuFor(type)) {
-      const kinds = kindsIn(item.category);
-      if (!kinds.length) continue;
-      const res = tryPlace(leaf, pick(kinds), item.wall);
-      // Tables seat 1–2 chairs; chairs appear nowhere else.
-      if (res && item.category === "Table") placeChairs(leaf, res.obj, res.box, randInt(1, 2));
+  // Furnishing profile, rolled per house (2026-08-16): some houses are bare
+  // (a cleared-out or unfinished home reads real), most are lived-in, some
+  // are cluttered — dense only adds storage pieces a real room would
+  // plausibly hold. 0 = bare, 1 = sparse (each item 50/50), 2 = normal,
+  // 3 = dense.
+  const fr = Math.random();
+  const furnishProfile = fr < 0.12 ? 0 : fr < 0.37 ? 1 : fr < 0.85 ? 2 : 3;
+  if (furnishProfile > 0) {
+    // The entry leaf is always the living room; the rest draw types without
+    // replacement so a two-bathroom house doesn't happen.
+    const typePool = shuffle<RoomType>(["bedroom", "bathroom", "office", "living"]);
+    const denseExtras = ["Drawer", "Closet", "Cabinet"];
+    for (const leaf of leaves) {
+      const type: RoomType = leaf === entryLeaf ? "living" : typePool.pop() ?? "living";
+      for (const item of menuFor(type)) {
+        if (furnishProfile === 1 && Math.random() < 0.5) continue;
+        const kinds = kindsIn(item.category);
+        if (!kinds.length) continue;
+        const res = tryPlace(leaf, pick(kinds), item.wall);
+        // Tables seat 1–2 chairs; chairs appear nowhere else.
+        if (res && item.category === "Table") placeChairs(leaf, res.obj, res.box, randInt(1, 2));
+      }
+      if (furnishProfile === 3) {
+        const kinds = kindsIn(pick(denseExtras));
+        if (kinds.length) tryPlace(leaf, pick(kinds), true);
+      }
     }
   }
 
   // ── extra targets ─────────────────────────────────────────────
-  // On top of the guaranteed hostile placed earlier: 1–3 more characters,
-  // biased so nearly every room has someone NON-hostile — an all-shooter
-  // house plays as a range, and reading friend-from-foe is the drill. Each
-  // extra tries EVERY room before giving up: the old single-leaf, 10-attempt
-  // roll almost never landed in a small play-space house, which is why
-  // rooms kept coming out with one lone (always-hostile) soldier.
-  const placeExtra = (kind: string, behavior: Behavior): boolean => {
+  // 0–4 people, each rolling model AND disposition independently — no
+  // guaranteed hostile, no guaranteed bystander (2026-08-16). An empty house
+  // and an all-compliant house are both legal rounds: clear every room, read
+  // every person, never assume there's someone to shoot. Each person tries
+  // every room, then falls back to the relaxed sweep.
+  const placePerson = (kind: string, behavior: Behavior): boolean => {
     for (const leaf of shuffle(leaves)) if (tryNpc(leaf, kind, behavior, 12)) return true;
-    return false;
+    return sweepNpc(shuffle(leaves), kind, behavior, [
+      { nearStart: false, doorway: false, tight: false },
+      { nearStart: true, doorway: false, tight: false },
+      { nearStart: true, doorway: true, tight: false },
+    ]);
   };
-  const extras = randInt(1, 3);
-  for (let i = 0; i < extras; i++) {
-    // Model and behavior roll independently: a soldier can surrender, a
-    // civilian can shoot. The first extra is always non-hostile so nearly
-    // every house has someone to NOT shoot.
-    const behavior = i === 0 ? pick<Behavior>(["compliant", "compliant", "afraid", "compToHostile"]) : pick(EXTRA_BEHAVIORS);
-    placeExtra(pick(NPC_KINDS), behavior);
+  const cast = randInt(0, 4);
+  for (let i = 0; i < cast; i++) placePerson(pick(NPC_KINDS), pick(CAST_BEHAVIORS));
+
+  // A person standing in an interior doorway (relaxed-sweep placements in
+  // tight houses) would block the leaf's swing — swap that door for an open
+  // frame instead: no leaf, nothing to block, still a cut doorway. Never the
+  // entry (person-free by construction above).
+  for (const d of doors) {
+    if (d === entryDoor || d.kind === "Open Door Frame") continue;
+    if (npcs.some((n) => Math.abs(n.x - d.x) < 2 && Math.abs(n.y - d.y) < 2)) d.kind = "Open Door Frame";
   }
 
   const now = Date.now();
