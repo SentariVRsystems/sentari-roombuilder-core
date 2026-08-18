@@ -10,7 +10,7 @@ import {
   wallsWithDoorGaps,
   type PlacedObject,
 } from "../rooms";
-import { generateRoom } from "../generateRoom";
+import { COZY_VARIANTS, distPointToSeg, generateRoom, pointInPoly } from "../generateRoom";
 import { checkBacking } from "./backing-check";
 
 let failures = 0;
@@ -28,13 +28,17 @@ let roomsWithNonHostile = 0;
 
 for (let i = 0; i < N; i++) {
   // Half the batch simulates play-space-fitted sizes (small, odd dimensions),
-  // half uses the generator's own random sizing.
+  // half uses the generator's own random sizing. Interior style cycles
+  // through forced warren/hallway/open plus the free roll so every
+  // architecture gets deterministic coverage.
+  const style = (["warren", "hallway", "open", undefined] as const)[i % 4];
   const room =
     i % 2 === 0
-      ? generateRoom()
+      ? generateRoom({ interiorStyle: style })
       : generateRoom({
           width: 6 + Math.floor(Math.random() * 18),
           height: 6 + Math.floor(Math.random() * 16),
+          interiorStyle: style,
         });
 
   // The start zone stages outside the house (below the southmost wall) in any
@@ -78,6 +82,20 @@ for (let i = 0; i < N; i++) {
     }
   }
   if (starts !== 1) fail(i, `${starts} start zones`);
+
+  // THE START DOOR ALWAYS HAS A LEAF (2026-08-17): the door the start zone
+  // stages against — the nearest door to the start — must be a real swinging
+  // door, never an Open Door Frame. Breaching a hole reads wrong.
+  {
+    const start = room.objects.find((o) => o.kind === "start");
+    const doorObjs = room.objects.filter((o) => isDoorKind(o.kind));
+    if (start && doorObjs.length) {
+      const entry = doorObjs.reduce((a, b) =>
+        Math.hypot(a.x - start.x, a.y - start.y) <= Math.hypot(b.x - start.x, b.y - start.y) ? a : b
+      );
+      if (entry.kind === "Open Door Frame") fail(i, `entry door (nearest start) is an Open Door Frame`);
+    }
+  }
 
   // Every door must actually cut a wall: gapping should split at least one
   // wall per door (wall count strictly grows, or a wall got consumed by
@@ -280,6 +298,181 @@ if (hostileModels.size < 5) {
   console.error(`FAILED: hostile behavior appears on only ${hostileModels.size} models`);
   failures++;
 }
+// Cozy variants (the small-space vocabulary): every variant at small sizes,
+// including the 10x9 a real ~5x4.5 m playspace produces. The main loop's
+// invariants run on each via the same fail() plumbing below — this block
+// only exists because the main loop can't force variants.
+{
+  let ci = 0;
+  for (const variant of COZY_VARIANTS) {
+    for (let i = 0; i < 150; i++) {
+      const room = generateRoom({
+        width: 9 + Math.floor(Math.random() * 4),
+        height: 8 + Math.floor(Math.random() * 3),
+        interiorStyle: "cozy",
+        cozyVariant: variant,
+      });
+      // Walkability + entry-leaf spot checks (the heavyweight invariants ran
+      // across the main 5000, which includes cozy houses at small sizes).
+      const start = room.objects.find((o) => o.kind === "start");
+      const doorObjs = room.objects.filter((o) => isDoorKind(o.kind));
+      if (!start || doorObjs.length < 1) fail(N + 1000 + ci, `cozy:${variant} missing start/door`);
+      else {
+        const entry = doorObjs.reduce((a, b) =>
+          Math.hypot(a.x - start.x, a.y - start.y) <= Math.hypot(b.x - start.x, b.y - start.y) ? a : b
+        );
+        if (entry.kind === "Open Door Frame") fail(N + 1000 + ci, `cozy:${variant} entry is an open frame`);
+      }
+      ci++;
+    }
+  }
+}
+
+// POLYGON SHELL: walls at arbitrary angles riding a walked outline. Same
+// fixture set as the C# suite; asserts containment (people/start strictly
+// inside the outline, furniture near-inside, walls on-or-inside), entry door
+// is a swing leaf, and full walkability (flood fill, angle-general).
+{
+  const fixtures: Array<{ name: string; pts: number[]; degraded?: boolean }> = [
+    { name: "quad", pts: [4, 20, 16, 20, 16.5, 6, 3.5, 7] },
+    { name: "chamfer", pts: [5, 20, 15, 20, 19, 17, 19, 6, 4, 5, 3, 16] },
+    { name: "Lshape", pts: [4, 20, 12, 20, 12, 13, 19, 13, 19, 4, 4, 4] },
+    { name: "sevenpt", pts: [4, 21, 13, 21, 17, 18, 20, 10, 14, 4, 6, 5, 3, 13] },
+    { name: "spike", pts: [4, 20, 14, 20, 21, 19, 15, 16, 20, 6, 5, 5] },
+    { name: "shorts", pts: [4, 20, 14, 20, 14.3, 19.8, 14.5, 19.6, 18, 12, 14, 5, 5, 5, 4.2, 12] },
+    { name: "revwind", pts: [15, 20, 5, 20, 3, 16, 4, 5, 19, 6, 19, 17] },
+    { name: "bowtie", pts: [4, 20, 14, 20, 4, 6, 14, 6], degraded: true },
+  ];
+  for (const fx of fixtures) {
+    const poly = [] as Array<{ x: number; y: number }>;
+    for (let i = 0; i < fx.pts.length; i += 2) poly.push({ x: fx.pts[i], y: fx.pts[i + 1] });
+    const distB = (p: { x: number; y: number }) => {
+      let best = Infinity;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++)
+        best = Math.min(best, distPointToSeg(p, poly[j], poly[i]));
+      return best;
+    };
+    const inOrNear = (p: { x: number; y: number }, tol: number) => pointInPoly(poly, p) || distB(p) <= tol;
+    for (let s = 0; s < 40; s++) {
+      const room = generateRoom({ width: 26, height: 26, shellPoly: poly.map((v) => ({ ...v })) });
+      const tag = `shellpoly:${fx.name}#${s}`;
+      const start = room.objects.find((o) => o.kind === "start");
+      const doorObjs = room.objects.filter((o) => isDoorKind(o.kind));
+      if (!start || !doorObjs.length) { fail(N + 2000, `${tag} missing start/door`); continue; }
+      const entry = doorObjs.reduce((a, b) =>
+        Math.hypot(a.x - start.x, a.y - start.y) <= Math.hypot(b.x - start.x, b.y - start.y) ? a : b
+      );
+      if (entry.kind === "Open Door Frame") fail(N + 2000, `${tag} entry is an open frame`);
+      if (!fx.degraded) {
+        for (const o of room.objects) {
+          const p = { x: o.x, y: o.y };
+          if (isWallKind(o.kind)) {
+            const r = (o.rotation * Math.PI) / 180;
+            const hx = (Math.cos(r) * o.w) / 2, hy = (Math.sin(r) * o.w) / 2;
+            if (!inOrNear({ x: o.x - hx, y: o.y - hy }, 2.5) || !inOrNear(p, 2.5) || !inOrNear({ x: o.x + hx, y: o.y + hy }, 2.5))
+              fail(N + 2000, `${tag} wall ${o.kind}@(${o.x.toFixed(1)},${o.y.toFixed(1)}) off the outline`);
+          } else if (paletteById[o.kind]?.render === "npc" || o.kind === "start") {
+            if (!inOrNear(p, 0.3)) fail(N + 2000, `${tag} ${o.kind}@(${o.x},${o.y}) outside the outline`);
+          } else if (!isDoorKind(o.kind) && !inOrNear(p, 0.8)) {
+            fail(N + 2000, `${tag} furniture ${o.kind}@(${o.x},${o.y}) outside the outline`);
+          }
+        }
+      }
+      // Nothing solid straddles a wall centerline — angle-general segment
+      // vs shrunk-AABB (the check that catches skewed-wall hug bugs).
+      {
+        const solids2 = room.objects.filter((o) => {
+          const def = paletteById[o.kind];
+          return def && (def.section === "Furniture" || def.render === "npc" || o.kind === "start");
+        });
+        const wallSegs = room.objects.filter((o) => isWallKind(o.kind)).map((wl) => {
+          const r = (wl.rotation * Math.PI) / 180;
+          const hx = (Math.cos(r) * wl.w) / 2, hy = (Math.sin(r) * wl.w) / 2;
+          return { ax: wl.x - hx, ay: wl.y - hy, bx: wl.x + hx, by: wl.y + hy, kind: wl.kind };
+        });
+        const crossX = (p1x: number, p1y: number, p2x: number, p2y: number, p3x: number, p3y: number, p4x: number, p4y: number) => {
+          const d1 = (p4x - p3x) * (p1y - p3y) - (p4y - p3y) * (p1x - p3x);
+          const d2 = (p4x - p3x) * (p2y - p3y) - (p4y - p3y) * (p2x - p3x);
+          const d3 = (p2x - p1x) * (p3y - p1y) - (p2y - p1y) * (p3x - p1x);
+          const d4 = (p2x - p1x) * (p4y - p1y) - (p2y - p1y) * (p4x - p1x);
+          return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+        };
+        for (const so of solids2) {
+          const e = objectExtent(so);
+          const lox = so.x - e.w + 0.02, loy = so.y - e.h + 0.02;
+          const hix = so.x + e.w - 0.02, hiy = so.y + e.h - 0.02;
+          for (const g of wallSegs) {
+            const endIn = (x: number, y: number) => x > lox && x < hix && y > loy && y < hiy;
+            const hits = endIn(g.ax, g.ay) || endIn(g.bx, g.by)
+              || crossX(g.ax, g.ay, g.bx, g.by, lox, loy, hix, loy)
+              || crossX(g.ax, g.ay, g.bx, g.by, hix, loy, hix, hiy)
+              || crossX(g.ax, g.ay, g.bx, g.by, hix, hiy, lox, hiy)
+              || crossX(g.ax, g.ay, g.bx, g.by, lox, hiy, lox, loy);
+            if (hits) fail(N + 2000, `${tag} ${so.kind}@(${so.x.toFixed(2)},${so.y.toFixed(2)}) straddles wall ${g.kind}`);
+          }
+        }
+      }
+
+      // Walkability: flood from the start; every NPC and door reachable.
+      {
+        const gappedWalls = wallsWithDoorGaps(room.objects).filter((o) => isWallKind(o.kind));
+        const step = 0.25;
+        const nx = Math.round(room.width / step) + 1;
+        const ny = Math.round(room.height / step) + 1;
+        const segs = gappedWalls.map((w) => {
+          const r = (w.rotation * Math.PI) / 180;
+          const hx = (Math.cos(r) * w.w) / 2, hy = (Math.sin(r) * w.w) / 2;
+          return { ax: w.x - hx, ay: w.y - hy, bx: w.x + hx, by: w.y + hy };
+        });
+        const blockedNear = (x: number, y: number) =>
+          segs.some((g) => distPointToSeg({ x, y }, { x: g.ax, y: g.ay }, { x: g.bx, y: g.by }) < 0.28);
+        const seen = new Uint8Array(nx * ny);
+        const q: number[] = [];
+        const push = (ix: number, iy: number) => {
+          const k = iy * nx + ix;
+          if (seen[k]) return;
+          seen[k] = 1;
+          q.push(k);
+        };
+        push(Math.round(start.x / step), Math.round(start.y / step));
+        while (q.length) {
+          const k = q.pop()!;
+          const ix = k % nx, iy = Math.floor(k / nx);
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            const jx = ix + dx, jy = iy + dy;
+            if (jx < 0 || jy < 0 || jx >= nx || jy >= ny) continue;
+            if (blockedNear(jx * step, jy * step)) continue;
+            push(jx, jy);
+          }
+        }
+        const reach = (x: number, y: number) => seen[Math.round(y / step) * nx + Math.round(x / step)] === 1;
+        for (const o of room.objects) {
+          if (paletteById[o.kind]?.render === "npc" && !reach(o.x, o.y))
+            fail(N + 2000, `${tag} NPC ${o.kind}@(${o.x},${o.y}) unreachable`);
+        }
+      }
+    }
+  }
+}
+
+// Cast injection (the Fish Bowl deck contract): exact count honored and
+// placed people only wear dealt dispositions.
+{
+  const behaviorSrc = ["hostile", "compliant", "afraid", "compToHostile"] as const;
+  for (let i = 0; i < 300; i++) {
+    const castN = i % 5;
+    const dealt = Array.from({ length: castN }, (_, k) => behaviorSrc[(i + k) % 4]);
+    const room = generateRoom({ width: 16, height: 14, castCount: castN, castBehaviors: [...dealt] });
+    const npcs = room.objects.filter((o) => paletteById[o.kind]?.render === "npc");
+    if (npcs.length > castN) fail(N + i, `cast ${npcs.length} exceeds dealt ${castN}`);
+    for (const n of npcs) {
+      if (!n.behavior || !(dealt as readonly string[]).includes(n.behavior)) {
+        fail(N + i, `NPC behavior '${n.behavior}' was not dealt`);
+      }
+    }
+  }
+}
+
 if (failures) {
   console.error(`FAILED: ${failures} invariant violations`);
   process.exit(1);
