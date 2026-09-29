@@ -32,7 +32,8 @@ for (const [label, pts] of Object.entries(shapes)) {
         console.log(`  VIOLATION: ${o.kind}@(${o.x},${o.y}) outside frame`); bad++;
       }
     }
-    if (!room.objects.some((o) => o.behavior === "hostile")) { console.log("  no hostile"); bad++; }
+  // No guaranteed hostile since 2824a07 (a no-threat house is a legal round) — only the cast cap holds.
+    if (room.objects.filter((o) => !!o.behavior).length > 4) { console.log("  cast over 4"); bad++; }
     if (room.objects.filter((o) => o.kind === "start").length !== 1) { console.log("  bad start count"); bad++; }
     const walls = room.objects.filter((o) => isWallKind(o.kind));
     if (walls.length < 4) { console.log("  too few walls:", walls.length); bad++; }

@@ -842,14 +842,24 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
   // them — a figure at the end of a hallway is the drill).
   const corridorLeaves = new Set<Leaf>();
   // Every extra wing is already a room; the split budget scales with them.
+  // Warren room count SCALES WITH THE SPACE (2026-09-29, mirrors RandomHouseGenerator.cs): a target
+  // room size of 5–10 m² (20–40 cells²), never fewer than the old 2–3 floor, at most 7 — and no warren
+  // room is left over ~16 m² (64 cells²) while it can still split (cap 8 rooms).
+  const shellCells = shells.reduce((a, s) => a + leafArea(s), 0);
+  const targetRoomCells = 20 + Math.random() * 20;
   const targetRooms =
     style === "open" || style === "cozy" ? leaves.length // wings stay one bay each
     : style === "hallway" ? leaves.length + randInt(0, Math.max(0, leaves.length))
-    : randInt(2, 4) + (shells.length - 1); // warren: 2–4 real rooms
-  while (leaves.length < targetRooms) {
+    // Floor = the old rule's floor (2–3, plus one per extra wing) so multi-wing houses never lose rooms.
+    : Math.min(7 + (shells.length - 1), Math.max(randInt(2, 3) + (shells.length - 1), Math.round(shellCells / targetRoomCells)));
+  const BARN_CELLS = 64;
+  for (;;) {
     const cands = leaves.filter(splittable);
     if (!cands.length) break;
     const leaf = cands.reduce((a, b) => (leafArea(a) >= leafArea(b) ? a : b));
+    const wantMore = leaves.length < targetRooms
+      || (style === "warren" && leaves.length < 8 && leafArea(leaf) > BARN_CELLS);
+    if (!wantMore) break;
     leaves.splice(leaves.indexOf(leaf), 1);
     if (leaf.x1 - leaf.x0 >= leaf.y1 - leaf.y0) {
       const ml = minLeafFor(leaf.x1 - leaf.x0);
@@ -939,7 +949,7 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
     const buildStrip = (sx0: number, sx1: number, wallX: number) => {
       interior.push(makeWall(houseWallKind, wallX, backY, wallX, entryY1, W, H));
       const rooms: Array<{ lo: number; hi: number }> = [{ lo: backY, hi: entryY1 }];
-      const nRooms = Math.min(3, Math.max(1, Math.floor((entryY1 - backY) / 3.5)));
+      const nRooms = Math.min(4, Math.max(1, Math.floor((entryY1 - backY) / 3.5)));
       while (rooms.length < nRooms) {
         let bi = 0;
         for (let i = 1; i < rooms.length; i++) if (rooms[i].hi - rooms[i].lo > rooms[bi].hi - rooms[bi].lo) bi = i;
@@ -1325,8 +1335,8 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
   for (const l of leaves) if (!corridorLeaves.has(l)) stubArea += leafArea(l);
   const stubBudget =
     style === "open"
-      ? Math.min(5, Math.max(2, Math.round(stubArea / 20)))
-      : Math.min(3, Math.max(1, Math.round(stubArea / 45)));
+      ? Math.min(8, Math.max(2, Math.round(stubArea / 20)))
+      : Math.min(5, Math.max(1, Math.round(stubArea / 40)));
 
   const tryStraightStub = (
     leaf: Leaf
@@ -1417,8 +1427,11 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
           : makeWall(houseWallKind, tipX, tipY, tipX, tipY + rdir * rl, W, H);
         const re = objectExtent(ret);
         const rbox = boxAt(ret.x, ret.y, re.w, re.h);
+        // 2 cells, not 1: the pocket's mouth is the gap between this tip and the room edge, and in
+        // polygon shells the real wall sits outside the leaf edge — a 1-cell margin left a ~0.75-cell
+        // slot and sealed people inside (2026-09-29, found by check-generate shellpoly:Lshape).
         const inLeaf =
-          rbox.x0 >= leaf.x0 + 1 && rbox.x1 <= leaf.x1 - 1 && rbox.y0 >= leaf.y0 + 1 && rbox.y1 <= leaf.y1 - 1;
+          rbox.x0 >= leaf.x0 + 2 && rbox.x1 <= leaf.x1 - 2 && rbox.y0 >= leaf.y0 + 2 && rbox.y1 <= leaf.y1 - 2;
         const othersPlaced = placed.filter((b) => b !== stubBox);
         const otherStubs = stubBoxes.filter((b) => b !== stubBox);
         if (
@@ -1446,13 +1459,17 @@ export function generateRoom(opts: GenerateRoomOptions = {}): Room {
     stubBoxes.push(b);
   }
   let stubCount = cozyStubWalls.length;
-  for (let pass = 0; pass < 2 && stubCount < stubBudget; pass++) {
+  // Keep passing until the budget is met or a whole pass places nothing — at most one piece per
+  // leaf per pass kept a big OPEN house (one leaf) at 2 pieces whatever its budget (2026-09-29).
+  for (let pass = 0; pass < Math.max(2, stubBudget) && stubCount < stubBudget; pass++) {
+    const before = stubCount;
     for (const leaf of shuffle(leaves)) {
       if (stubCount >= stubBudget) break;
       if (corridorLeaves.has(leaf)) continue;
       if (pass === 0 && Math.random() < 0.35) continue; // scatter across leaves
       if (tryStub(leaf)) stubCount++;
     }
+    if (pass > 0 && stubCount === before) break; // nothing more fits anywhere
   }
 
   // ── the cast ──────────────────────────────────────────────────

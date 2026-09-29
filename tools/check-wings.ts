@@ -36,7 +36,8 @@ for (let i = 0; i < 300; i++) {
     }
   }
   if (starts !== 1) fail(i, `${starts} starts`);
-  if (!room.objects.some((o) => o.behavior === "hostile")) fail(i, "no hostile");
+  // No guaranteed hostile since 2824a07 (a no-threat house is a legal round) — only the cast cap holds.
+  if (room.objects.filter((o) => !!o.behavior).length > 4) fail(i, "cast over 4");
   checkBacking(room, (m) => fail(i, m));
 
   // walkability: flood from start, all doors + NPCs reachable
