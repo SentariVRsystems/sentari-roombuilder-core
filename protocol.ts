@@ -246,3 +246,106 @@ export const registerController = () => JSON.stringify({ type: "register", role:
 export function commandMessage(target: string, action: string, payload: Record<string, unknown> = {}): string {
   return JSON.stringify({ type: "command", target, action, payload });
 }
+
+// ── NPC simulator (dev tool) ─────────────────────────────────────
+//
+// The Unity editor, in Play, joins the relay as the device "NPC Sim" and runs the
+// real NPC brains; the Builder's /sim page drives a player circle and reads this
+// stream (~10 Hz). Positions in room cells, headings in map degrees (0° = +x,
+// clockwise), ranges in cells. Controller → device: command `simPlayer`
+// {x,y,facing,crouch} and `simAct` {kind,arg,id,value} (NpcTopDownSim.cs).
+
+export const SIM_DEVICE_NAME = "NPC Sim";
+
+export type SimNpc = {
+  id: string;
+  name: string;
+  beh: string; // NPCAlignment name
+  cat: string; // Hostile | Innocent | FakeSurrender
+  state: string; // NPCState name
+  stateFor: number; // seconds in this state
+  phase: string; // hider / cover-shooter phase ("" otherwise)
+  anim: string; // base-layer animator state ("A → B" mid-transition)
+  controller: string;
+  alive: boolean;
+  brain: boolean;
+  x: number;
+  y: number;
+  facing: number;
+  health: number;
+  sees: boolean;
+  seesFull: boolean;
+  noticed: boolean;
+  notice: number; // 0..1 progress toward noticing a partial glimpse
+  noticeVis: number;
+  noticeTotal: number;
+  complied: boolean;
+  detained: boolean;
+  nv: boolean;
+  fov: number; // degrees, as the brain uses it now (darkness rule included)
+  range: number; // cells
+  fire: number; // cells
+  moving: boolean;
+  speed: number;
+  path?: number[]; // flat [x0,y0,x1,y1,…] cells
+  seenX: number;
+  seenY: number;
+  seenAgo: number; // seconds since it last SAW you; -1 = never
+  voice?: string; // "Jeremy" | "Savvy"
+  said?: string; // the last voice line's script text
+  saidId?: string; // its clip id (IDLE_01 …)
+  saidAgo?: number; // seconds since it was said; -1 = nothing yet
+  mouth?: number; // jaw opening 0..1 while talking; -1 = this body has no jaw
+};
+
+export type SimDebug = {
+  deviceName: string;
+  roomSeq: number;
+  room?: string;
+  hot: boolean;
+  paused: boolean;
+  speed: number;
+  t: number; // seconds since go-hot
+  difficulty: string;
+  lightsOut: boolean;
+  goggles: boolean;
+  voice: boolean;
+  standStill: boolean;
+  light: boolean;
+  laser: boolean;
+  player: { x: number; y: number; facing: number; crouch: boolean; fired: boolean };
+  npcs: SimNpc[];
+  log: string[];
+  rt: number; // relay receive time (ms)
+};
+
+export function parseSimDebug(m: unknown): SimDebug | null {
+  const d = m as Partial<SimDebug> & { type?: string };
+  if (!d || d.type !== "npcDebug" || !Array.isArray(d.npcs)) return null;
+  return {
+    deviceName: String(d.deviceName ?? SIM_DEVICE_NAME),
+    roomSeq: Number(d.roomSeq) || 0,
+    room: typeof d.room === "string" ? d.room : undefined,
+    hot: !!d.hot,
+    paused: !!d.paused,
+    speed: Number(d.speed) || 1,
+    t: Number(d.t) || 0,
+    difficulty: String(d.difficulty ?? ""),
+    lightsOut: !!d.lightsOut,
+    goggles: !!d.goggles,
+    voice: !!d.voice,
+    standStill: !!d.standStill,
+    light: !!d.light,
+    laser: !!d.laser,
+    player: {
+      x: Number(d.player?.x) || 0,
+      y: Number(d.player?.y) || 0,
+      facing: Number(d.player?.facing) || 0,
+      crouch: !!d.player?.crouch,
+      fired: !!d.player?.fired,
+    },
+    npcs: d.npcs as SimNpc[],
+    log: Array.isArray(d.log) ? d.log.map(String) : [],
+    rt: Number(d.rt) || Date.now(),
+  };
+}

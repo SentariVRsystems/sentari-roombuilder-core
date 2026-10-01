@@ -295,6 +295,15 @@ wss.on("connection", (ws) => {
         for (const c of controllers()) send(c.ws, out);
         break;
       }
+      case "npcDebug": {
+        // The NPC simulator's live brain state (Unity editor joined as "NPC Sim"): per-NPC state,
+        // phase, animation, sight, path, vision cone, plus timeline lines. ~10 Hz, controllers
+        // only, passed through as sent — the Builder's /sim page is the only reader.
+        if (client.role !== "device") break;
+        const out = { ...msg, deviceName: client.deviceName, rt: Date.now() }; // msg.t = sim play time
+        for (const c of controllers()) send(c.ws, out);
+        break;
+      }
       case "bounds": {
         // The four corners of a headset's real space, relative to its placed
         // start. Reference geometry for the Room Builder's canvas.
